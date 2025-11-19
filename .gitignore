@@ -65,6 +65,7 @@ Dupes/*.csv
 Dupes/*.xlsx
 Files/*.csv
 Files/*.zip
+output/
 
 # Backup files
 *_original.py

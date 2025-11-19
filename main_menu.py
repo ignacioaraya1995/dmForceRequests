@@ -407,6 +407,7 @@ class MainMenu:
             dupe_manager = DuplicateManager()
             suppression_records = dupe_manager.load_suppression_records(config.paths.suppress_path)
 
+            suppressed_count = 0
             if suppression_records:
                 self.print_info(f"Loaded {len(suppression_records):,} suppression records")
                 df, suppressed_count = processor.apply_suppression(df, suppression_records)
@@ -499,6 +500,10 @@ class MainMenu:
             # Print completion
             elapsed_time = time.time() - start_time
             progress.print_summary(len(df), elapsed_time)
+
+            # Print suppression summary
+            if suppressed_count > 0:
+                self.print_info(f"📊 Total suppressed properties: {suppressed_count:,}")
 
             self.print_success("Process completed successfully!")
             logger.info(f"Processing completed in {elapsed_time:.2f} seconds")

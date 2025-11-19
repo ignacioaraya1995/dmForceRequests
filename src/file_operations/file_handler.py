@@ -260,27 +260,35 @@ class DuplicateManager:
                 # Still try to extract addresses without zip, use empty string as zip
                 zip_col = None
 
-            # Extract records from property address column
+            # Extract records from property address column - VECTORIZED
             if property_col:
-                for idx, row in df.iterrows():
-                    addr = row.get(property_col)
-                    zip_code = row.get(zip_col) if zip_col else ''
+                # Clean addresses and zips in vectorized way
+                prop_addr_clean = df[property_col].fillna('').astype(str).str.strip().str.lower()
+                prop_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
 
-                    if pd.notna(addr) and str(addr).strip():
-                        clean_addr = str(addr).strip().lower()
-                        clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
-                        records.add((clean_addr, clean_zip))
+                # Filter out empty addresses
+                valid_mask = prop_addr_clean != ''
+                valid_addrs = prop_addr_clean[valid_mask]
+                valid_zips = prop_zip_clean[valid_mask]
 
-            # Extract records from mailing address column
+                # Create tuples and add to set
+                prop_records = set(zip(valid_addrs, valid_zips))
+                records.update(prop_records)
+
+            # Extract records from mailing address column - VECTORIZED
             if mailing_col:
-                for idx, row in df.iterrows():
-                    addr = row.get(mailing_col)
-                    zip_code = row.get(zip_col) if zip_col else ''
+                # Clean addresses and zips in vectorized way
+                mail_addr_clean = df[mailing_col].fillna('').astype(str).str.strip().str.lower()
+                mail_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
 
-                    if pd.notna(addr) and str(addr).strip():
-                        clean_addr = str(addr).strip().lower()
-                        clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
-                        records.add((clean_addr, clean_zip))
+                # Filter out empty addresses
+                valid_mask = mail_addr_clean != ''
+                valid_addrs = mail_addr_clean[valid_mask]
+                valid_zips = mail_zip_clean[valid_mask]
+
+                # Create tuples and add to set
+                mail_records = set(zip(valid_addrs, valid_zips))
+                records.update(mail_records)
 
             logger.debug(f"Extracted {len(records):,} suppression records from {file_path.name}")
 

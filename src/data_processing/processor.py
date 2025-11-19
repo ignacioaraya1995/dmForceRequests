@@ -433,34 +433,40 @@ class DataProcessor:
 
         logger.info(f"Applying suppression with {len(suppression_records):,} suppression records")
 
-        # Create a mask for rows to keep (not suppress)
+        # Create a mask for rows to keep (not suppress) - vectorized approach
         keep_mask = pd.Series([True] * len(df), index=df.index)
 
-        # Check property address + zip combinations
+        # Check property address + zip combinations - VECTORIZED
         if property_addr and property_zip:
-            logger.debug("Checking property addresses against suppression list")
-            for idx, row in df.iterrows():
-                prop_addr = row.get(property_addr)
-                prop_zip = row.get(property_zip)
+            logger.debug("Checking property addresses against suppression list (vectorized)")
+            # Create cleaned address and zip columns in vectorized way
+            prop_addr_clean = df[property_addr].fillna('').astype(str).str.strip().str.lower()
+            prop_zip_clean = df[property_zip].fillna('').astype(str).str.strip()
 
-                if pd.notna(prop_addr) and pd.notna(prop_zip):
-                    clean_addr = str(prop_addr).strip().lower()
-                    clean_zip = str(prop_zip).strip()
-                    if (clean_addr, clean_zip) in suppression_records:
-                        keep_mask[idx] = False
+            # Create tuples for comparison
+            prop_tuples = list(zip(prop_addr_clean, prop_zip_clean))
 
-        # Check mailing address + zip combinations
+            # Check membership in suppression set - vectorized
+            suppress_mask = [tuple_val in suppression_records for tuple_val in prop_tuples]
+
+            # Update keep mask
+            keep_mask = keep_mask & ~pd.Series(suppress_mask, index=df.index)
+
+        # Check mailing address + zip combinations - VECTORIZED
         if mailing_addr and mailing_zip:
-            logger.debug("Checking mailing addresses against suppression list")
-            for idx, row in df.iterrows():
-                mail_addr = row.get(mailing_addr)
-                mail_zip = row.get(mailing_zip)
+            logger.debug("Checking mailing addresses against suppression list (vectorized)")
+            # Create cleaned address and zip columns in vectorized way
+            mail_addr_clean = df[mailing_addr].fillna('').astype(str).str.strip().str.lower()
+            mail_zip_clean = df[mailing_zip].fillna('').astype(str).str.strip()
 
-                if pd.notna(mail_addr) and pd.notna(mail_zip):
-                    clean_addr = str(mail_addr).strip().lower()
-                    clean_zip = str(mail_zip).strip()
-                    if (clean_addr, clean_zip) in suppression_records:
-                        keep_mask[idx] = False
+            # Create tuples for comparison
+            mail_tuples = list(zip(mail_addr_clean, mail_zip_clean))
+
+            # Check membership in suppression set - vectorized
+            suppress_mask = [tuple_val in suppression_records for tuple_val in mail_tuples]
+
+            # Update keep mask
+            keep_mask = keep_mask & ~pd.Series(suppress_mask, index=df.index)
 
         df_filtered = df[keep_mask].copy()
         rows_removed = initial_rows - len(df_filtered)

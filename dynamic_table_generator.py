@@ -290,25 +290,33 @@ class DynamicTableGenerator:
                     print(f"    ⚠ No address columns found in {file_path.name}")
                     continue
 
-                # Extract records from property address
+                # Extract records from property address - VECTORIZED
                 if property_col:
-                    for _, row in df.iterrows():
-                        addr = row.get(property_col)
-                        zip_code = row.get(zip_col) if zip_col else ''
-                        if pd.notna(addr) and str(addr).strip():
-                            clean_addr = str(addr).strip().lower()
-                            clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
-                            suppression_records.add((clean_addr, clean_zip))
+                    prop_addr_clean = df[property_col].fillna('').astype(str).str.strip().str.lower()
+                    prop_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
 
-                # Extract records from mailing address
+                    # Filter out empty addresses
+                    valid_mask = prop_addr_clean != ''
+                    valid_addrs = prop_addr_clean[valid_mask]
+                    valid_zips = prop_zip_clean[valid_mask]
+
+                    # Create tuples and add to set
+                    prop_records = set(zip(valid_addrs, valid_zips))
+                    suppression_records.update(prop_records)
+
+                # Extract records from mailing address - VECTORIZED
                 if mailing_col:
-                    for _, row in df.iterrows():
-                        addr = row.get(mailing_col)
-                        zip_code = row.get(zip_col) if zip_col else ''
-                        if pd.notna(addr) and str(addr).strip():
-                            clean_addr = str(addr).strip().lower()
-                            clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
-                            suppression_records.add((clean_addr, clean_zip))
+                    mail_addr_clean = df[mailing_col].fillna('').astype(str).str.strip().str.lower()
+                    mail_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
+
+                    # Filter out empty addresses
+                    valid_mask = mail_addr_clean != ''
+                    valid_addrs = mail_addr_clean[valid_mask]
+                    valid_zips = mail_zip_clean[valid_mask]
+
+                    # Create tuples and add to set
+                    mail_records = set(zip(valid_addrs, valid_zips))
+                    suppression_records.update(mail_records)
 
                 print(f"    ✓ Loaded {len(suppression_records):,} total suppression records so far")
 
@@ -345,6 +353,50 @@ class DynamicTableGenerator:
                 return True
 
         return False
+
+    def filter_suppressed_vectorized(self, df):
+        """
+        Filter out suppressed rows using vectorized operations.
+        Returns tuple of (filtered_df, suppressed_count).
+        """
+        if not self.suppression_records:
+            return df, 0
+
+        initial_rows = len(df)
+        keep_mask = pd.Series([True] * len(df), index=df.index)
+
+        # Check property address + zip combinations - VECTORIZED
+        if 'SitusFullStreetAddress' in df.columns and 'SitusZIP5' in df.columns:
+            prop_addr_clean = df['SitusFullStreetAddress'].fillna('').astype(str).str.strip().str.lower()
+            prop_zip_clean = df['SitusZIP5'].fillna('').astype(str).str.strip()
+
+            # Create tuples for comparison
+            prop_tuples = list(zip(prop_addr_clean, prop_zip_clean))
+
+            # Check membership in suppression set
+            suppress_mask = [tuple_val in self.suppression_records for tuple_val in prop_tuples]
+
+            # Update keep mask
+            keep_mask = keep_mask & ~pd.Series(suppress_mask, index=df.index)
+
+        # Check mailing address + zip combinations - VECTORIZED
+        if 'MailingFullStreetAddress' in df.columns and 'MailingZIP5' in df.columns:
+            mail_addr_clean = df['MailingFullStreetAddress'].fillna('').astype(str).str.strip().str.lower()
+            mail_zip_clean = df['MailingZIP5'].fillna('').astype(str).str.strip()
+
+            # Create tuples for comparison
+            mail_tuples = list(zip(mail_addr_clean, mail_zip_clean))
+
+            # Check membership in suppression set
+            suppress_mask = [tuple_val in self.suppression_records for tuple_val in mail_tuples]
+
+            # Update keep mask
+            keep_mask = keep_mask & ~pd.Series(suppress_mask, index=df.index)
+
+        df_filtered = df[keep_mask].copy()
+        suppressed_count = initial_rows - len(df_filtered)
+
+        return df_filtered, suppressed_count
 
     def process_csv_files(self):
         """Process all CSV files and generate the dynamic table."""
@@ -397,13 +449,16 @@ class DynamicTableGenerator:
                 df = pd.read_csv(csv_file, low_memory=False)
                 print(f"✓ Loaded {len(df):,} rows")
 
+                # Apply suppression filter BEFORE processing rows - VECTORIZED
+                if self.suppression_records:
+                    print("Applying suppression filter (vectorized)...")
+                    df, file_suppressed = self.filter_suppressed_vectorized(df)
+                    total_rows_suppressed += file_suppressed
+                    print(f"✓ Suppressed {file_suppressed:,} rows, {len(df):,} rows remaining")
+
                 # Process each row with progress bar
                 print("\nProcessing rows...")
                 for idx, row in tqdm(df.iterrows(), total=len(df), desc="Processing", unit="rows"):
-                    # Check if this row should be suppressed
-                    if self.is_suppressed(row):
-                        total_rows_suppressed += 1
-                        continue
 
                     # Extract dimension values
                     fips = str(row.get('FIPS', 'Unknown'))

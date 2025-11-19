@@ -664,17 +664,14 @@ class DynamicTableGenerator:
             print(f"⚠ WARNING: Record count mismatch!")
             print(f"  Difference: {abs(total_counted - total_rows_processed):,}")
 
-        # Save to CSV
-        output_df.to_csv(output_path, index=False)
-        print(f"\n✓ CSV output saved to: {output_path}")
-
-        # Also save to Excel for better formatting
+        # Save to Excel
         excel_path = self.output_folder / excel_filename
         try:
             output_df.to_excel(excel_path, index=False, sheet_name='Dynamic Table')
-            print(f"✓ Excel output saved to: {excel_path}")
+            print(f"\n✓ Excel output saved to: {excel_path}")
         except Exception as e:
             print(f"⚠ Could not save Excel file: {str(e)}")
+            raise
 
         # Print summary statistics
         print(f"\n{'=' * 80}")

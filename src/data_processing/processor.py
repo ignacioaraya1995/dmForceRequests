@@ -369,13 +369,114 @@ class DataProcessor:
             logger.error(f"Error processing FIPS file: {e}", exc_info=True)
             return df
 
+    def apply_suppression(
+        self,
+        df: pd.DataFrame,
+        suppression_records: Set[Tuple[str, str]]
+    ) -> Tuple[pd.DataFrame, int]:
+        """
+        Remove properties that match suppression records.
+
+        Suppression matching treats property and mailing addresses as equivalent.
+        If a suppression record lists an address in either property or mailing address column,
+        it will match against both address types in the dataset.
+
+        Args:
+            df: Input DataFrame
+            suppression_records: Set of (address, zip) tuples to filter out (lowercase)
+
+        Returns:
+            Tuple of (filtered DataFrame, count of rows removed)
+        """
+        if not suppression_records:
+            logger.info("No suppression records provided, skipping suppression")
+            return df, 0
+
+        initial_rows = len(df)
+
+        # Possible column names for property addresses
+        property_addr_cols = ['SitusFullStreetAddress', 'PROPERTY ADDRESS']
+        property_zip_cols = ['SitusZIP5', 'PROPERTY ZIP']
+
+        # Possible column names for mailing addresses
+        mailing_addr_cols = ['MailingFullStreetAddress', 'MAILING ADDRESS']
+        mailing_zip_cols = ['MailingZIP5', 'MAILING ZIP']
+
+        # Find which columns exist
+        property_addr = None
+        for col in property_addr_cols:
+            if col in df.columns:
+                property_addr = col
+                break
+
+        property_zip = None
+        for col in property_zip_cols:
+            if col in df.columns:
+                property_zip = col
+                break
+
+        mailing_addr = None
+        for col in mailing_addr_cols:
+            if col in df.columns:
+                mailing_addr = col
+                break
+
+        mailing_zip = None
+        for col in mailing_zip_cols:
+            if col in df.columns:
+                mailing_zip = col
+                break
+
+        if not property_addr and not mailing_addr:
+            logger.warning("No property or mailing address columns found, cannot apply suppression")
+            return df, 0
+
+        logger.info(f"Applying suppression with {len(suppression_records):,} suppression records")
+
+        # Create a mask for rows to keep (not suppress)
+        keep_mask = pd.Series([True] * len(df), index=df.index)
+
+        # Check property address + zip combinations
+        if property_addr and property_zip:
+            logger.debug("Checking property addresses against suppression list")
+            for idx, row in df.iterrows():
+                prop_addr = row.get(property_addr)
+                prop_zip = row.get(property_zip)
+
+                if pd.notna(prop_addr) and pd.notna(prop_zip):
+                    clean_addr = str(prop_addr).strip().lower()
+                    clean_zip = str(prop_zip).strip()
+                    if (clean_addr, clean_zip) in suppression_records:
+                        keep_mask[idx] = False
+
+        # Check mailing address + zip combinations
+        if mailing_addr and mailing_zip:
+            logger.debug("Checking mailing addresses against suppression list")
+            for idx, row in df.iterrows():
+                mail_addr = row.get(mailing_addr)
+                mail_zip = row.get(mailing_zip)
+
+                if pd.notna(mail_addr) and pd.notna(mail_zip):
+                    clean_addr = str(mail_addr).strip().lower()
+                    clean_zip = str(mail_zip).strip()
+                    if (clean_addr, clean_zip) in suppression_records:
+                        keep_mask[idx] = False
+
+        df_filtered = df[keep_mask].copy()
+        rows_removed = initial_rows - len(df_filtered)
+
+        logger.info(f"Suppression applied: Removed {rows_removed:,} properties")
+        logger.info(f"Remaining properties: {len(df_filtered):,}")
+
+        return df_filtered, rows_removed
+
     def remove_previous_addresses(
         self,
         df: pd.DataFrame,
         previous_addresses: Set[str]
     ) -> Tuple[pd.DataFrame, int]:
         """
-        Remove properties that appear in the previous addresses set.
+        Remove properties that appear in the previous addresses set (legacy method).
 
         Args:
             df: Input DataFrame

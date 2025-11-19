@@ -131,6 +131,165 @@ class DuplicateManager:
         """Initialize the duplicate manager."""
         logger.info("DuplicateManager initialized")
 
+    def load_suppression_records(self, suppress_folder: Path) -> Set[Tuple[str, str]]:
+        """
+        Load suppression records from the suppress folder.
+
+        Suppression files must contain at least property address and zip code columns.
+        May also include mailing address columns.
+
+        Returns a set of tuples: (lowercase_address, zip_code) for matching.
+        Both property and mailing addresses are treated as equivalent indicators.
+
+        Args:
+            suppress_folder: Path to folder containing suppression files
+
+        Returns:
+            Set of (address, zip) tuples for suppression matching
+        """
+        if not suppress_folder.exists():
+            logger.warning(f"Suppress folder does not exist: {suppress_folder}")
+            return set()
+
+        if not suppress_folder.is_dir():
+            logger.error(f"Suppress path is not a directory: {suppress_folder}")
+            return set()
+
+        # Find CSV and Excel files
+        csv_files = glob(str(suppress_folder / "*.csv"))
+        xlsx_files = glob(str(suppress_folder / "*.xlsx"))
+        all_files = csv_files + xlsx_files
+
+        if not all_files:
+            logger.warning(f"No suppression files found in: {suppress_folder}")
+            return set()
+
+        logger.info(f"Found {len(all_files)} suppression file(s)")
+
+        suppression_records = set()
+
+        for file_path in all_files:
+            file_path = Path(file_path)
+            records = self._extract_suppression_records(file_path)
+            suppression_records.update(records)
+
+        logger.info(f"Loaded {len(suppression_records):,} unique suppression records (address+zip combinations)")
+
+        return suppression_records
+
+    def _extract_suppression_records(self, file_path: Path) -> Set[Tuple[str, str]]:
+        """
+        Extract suppression records from a single file.
+
+        Looks for property address, mailing address, and zip code columns.
+        Treats property and mailing addresses as equivalent for suppression.
+
+        Args:
+            file_path: Path to suppression file (CSV or Excel)
+
+        Returns:
+            Set of (address, zip) tuples
+        """
+        try:
+            logger.debug(f"Extracting suppression records from: {file_path.name}")
+
+            # Read file based on extension
+            if file_path.suffix.lower() == '.csv':
+                df = pd.read_csv(file_path, low_memory=False)
+            elif file_path.suffix.lower() in ['.xlsx', '.xls']:
+                df = pd.read_excel(file_path)
+            else:
+                logger.warning(f"Unsupported file type: {file_path.suffix}")
+                return set()
+
+            records = set()
+
+            # Look for various possible column names for addresses and zip codes
+            # Property address columns
+            property_addr_cols = [
+                'PROPERTY ADDRESS', 'PropertyAddress', 'Property_Address',
+                'SitusFullStreetAddress', 'Situs_Full_Street_Address',
+                'SitusAddress', 'Property Address'
+            ]
+
+            # Mailing address columns
+            mailing_addr_cols = [
+                'MAILING ADDRESS', 'MailingAddress', 'Mailing_Address',
+                'MailingFullStreetAddress', 'Mailing_Full_Street_Address',
+                'Mailing Address'
+            ]
+
+            # Zip code columns
+            zip_cols = [
+                'PROPERTY ZIP', 'PropertyZIP', 'Property_ZIP', 'PropertyZIP5',
+                'SitusZIP5', 'Situs_ZIP5', 'SitusZIP', 'Property ZIP',
+                'MAILING ZIP', 'MailingZIP', 'Mailing_ZIP', 'MailingZIP5',
+                'Mailing ZIP', 'ZIP', 'Zip', 'ZipCode', 'Zip_Code'
+            ]
+
+            # Find which columns exist in the dataframe
+            property_col = None
+            for col in property_addr_cols:
+                if col in df.columns:
+                    property_col = col
+                    break
+
+            mailing_col = None
+            for col in mailing_addr_cols:
+                if col in df.columns:
+                    mailing_col = col
+                    break
+
+            zip_col = None
+            for col in zip_cols:
+                if col in df.columns:
+                    zip_col = col
+                    break
+
+            if not property_col and not mailing_col:
+                logger.warning(
+                    f"File {file_path.name} does not contain property or mailing address columns"
+                )
+                return set()
+
+            if not zip_col:
+                logger.warning(
+                    f"File {file_path.name} does not contain zip code column. "
+                    f"Suppression requires both address and zip code."
+                )
+                # Still try to extract addresses without zip, use empty string as zip
+                zip_col = None
+
+            # Extract records from property address column
+            if property_col:
+                for idx, row in df.iterrows():
+                    addr = row.get(property_col)
+                    zip_code = row.get(zip_col) if zip_col else ''
+
+                    if pd.notna(addr) and str(addr).strip():
+                        clean_addr = str(addr).strip().lower()
+                        clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
+                        records.add((clean_addr, clean_zip))
+
+            # Extract records from mailing address column
+            if mailing_col:
+                for idx, row in df.iterrows():
+                    addr = row.get(mailing_col)
+                    zip_code = row.get(zip_col) if zip_col else ''
+
+                    if pd.notna(addr) and str(addr).strip():
+                        clean_addr = str(addr).strip().lower()
+                        clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
+                        records.add((clean_addr, clean_zip))
+
+            logger.debug(f"Extracted {len(records):,} suppression records from {file_path.name}")
+
+            return records
+
+        except Exception as e:
+            logger.error(f"Error extracting suppression records from {file_path.name}: {e}", exc_info=True)
+            return set()
+
     def load_previous_addresses(self, dupes_folder: Path) -> Set[str]:
         """
         Load addresses from previous files in the dupes folder.

@@ -129,9 +129,10 @@ class PathConfig:
     # Data folder structure
     data_folder: str = "data"
     input_folder_name: str = "input"
+    suppress_folder_name: str = "suppress"
     output_folder_name: str = "output"
 
-    # Legacy folders (backwards compatibility)
+    # Legacy folders (backwards compatibility - deprecated)
     legacy_input_folder: str = "Files"
     dupes_folder: str = "Dupes"
 
@@ -165,8 +166,18 @@ class PathConfig:
             return self.base_dir / self.legacy_input_folder
 
     @property
+    def suppress_path(self) -> Path:
+        """Get full suppress folder path."""
+        if self.client_name:
+            # New structure: data/client_name/suppress
+            return self.base_dir / self.data_folder / self.client_name / self.suppress_folder_name
+        else:
+            # Legacy structure: Dupes
+            return self.base_dir / self.dupes_folder
+
+    @property
     def dupes_path(self) -> Path:
-        """Get full dupes folder path."""
+        """Get full dupes folder path (legacy)."""
         return self.base_dir / self.dupes_folder
 
     @property
@@ -192,6 +203,7 @@ class PathConfig:
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""
         self.input_path.mkdir(parents=True, exist_ok=True)
+        self.suppress_path.mkdir(parents=True, exist_ok=True)
         self.output_path.mkdir(parents=True, exist_ok=True)
         self.log_path.mkdir(parents=True, exist_ok=True)
 

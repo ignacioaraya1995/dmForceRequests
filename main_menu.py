@@ -53,9 +53,10 @@ class MainMenu:
             if item.is_dir() and not item.name.startswith('.') and item.name != 'README.md':
                 # Check if it has the required structure
                 input_dir = item / "input"
+                suppress_dir = item / "suppress"
                 output_dir = item / "output"
 
-                if input_dir.exists() or output_dir.exists():
+                if input_dir.exists() or suppress_dir.exists() or output_dir.exists():
                     customers.append(item.name)
 
         return sorted(customers)
@@ -70,10 +71,9 @@ class MainMenu:
             self.print_info("Required structure:")
             print("  data/")
             print("    └── customer_name/")
-            print("        ├── input/")
-            print("        │   ├── {FIPS}.csv          # CSV data files")
-            print("        │   └── suppression.csv     # Suppression file")
-            print("        └── output/                 # Generated files")
+            print("        ├── input/      # CSV data files")
+            print("        ├── suppress/   # Suppression files (address + zip)")
+            print("        └── output/     # Generated reports")
             return None
 
         self.print_header("SELECT CUSTOMER")
@@ -82,8 +82,6 @@ class MainMenu:
         for i, customer in enumerate(customers, 1):
             customer_path = self.customers_dir / customer
             input_files = list((customer_path / "input").glob("*.csv")) if (customer_path / "input").exists() else []
-            # Exclude suppression.csv from count
-            input_files = [f for f in input_files if f.name != "suppression.csv"]
             print(f"  {Fore.CYAN}{i}.{Style.RESET_ALL} {customer}")
             if input_files:
                 print(f"     └─ {len(input_files)} CSV file(s) in input/")
@@ -135,13 +133,15 @@ class MainMenu:
         # Create folder structure
         try:
             (customer_path / "input").mkdir(parents=True, exist_ok=True)
+            (customer_path / "suppress").mkdir(parents=True, exist_ok=True)
             (customer_path / "output").mkdir(parents=True, exist_ok=True)
 
             self.print_success(f"Created customer folder: {clean_name}")
             self.print_info(f"Location: {customer_path}")
-            self.print_info("Please add CSV files to: input/")
-            self.print_info("  - Data files: input/{FIPS}.csv")
-            self.print_info("  - Suppression: input/suppression.csv")
+            self.print_info("Folder structure created:")
+            self.print_info("  - input/    : Place CSV data files here")
+            self.print_info("  - suppress/ : Place suppression files here (address + zip required)")
+            self.print_info("  - output/   : Generated reports will be saved here")
 
             return clean_name
         except Exception as e:
@@ -177,28 +177,37 @@ class MainMenu:
 
         # Check input files
         input_path = customer_path / "input"
+        suppress_path = customer_path / "suppress"
         output_path = customer_path / "output"
 
         print(f"{Fore.CYAN}Input Files:{Style.RESET_ALL}")
         if input_path.exists():
             csv_files = list(input_path.glob("*.csv"))
-            suppression_file = input_path / "suppression.csv"
-            data_files = [f for f in csv_files if f.name != "suppression.csv"]
 
             print(f"\n  Data Files ({input_path}):")
-            if data_files:
-                for csv_file in data_files:
+            if csv_files:
+                for csv_file in csv_files:
                     size_mb = csv_file.stat().st_size / (1024 * 1024)
                     print(f"    - {csv_file.name} ({size_mb:.2f} MB)")
             else:
-                print(f"    {Fore.YELLOW}No data CSV files found{Style.RESET_ALL}")
+                print(f"    {Fore.YELLOW}No CSV files found{Style.RESET_ALL}")
+        else:
+            print(f"\n  {Fore.YELLOW}Input folder does not exist{Style.RESET_ALL}")
 
-            print(f"\n  Suppression File:")
-            if suppression_file.exists():
-                size_mb = suppression_file.stat().st_size / (1024 * 1024)
-                print(f"    - {suppression_file.name} ({size_mb:.2f} MB)")
+        print(f"\n{Fore.CYAN}Suppression Files:{Style.RESET_ALL}")
+        if suppress_path.exists():
+            suppress_files = list(suppress_path.glob("*"))
+            suppress_files = [f for f in suppress_files if f.is_file()]
+
+            if suppress_files:
+                print(f"\n  Suppress Files ({suppress_path}):")
+                for supp_file in suppress_files:
+                    size_mb = supp_file.stat().st_size / (1024 * 1024)
+                    print(f"    - {supp_file.name} ({size_mb:.2f} MB)")
             else:
-                print(f"    {Fore.YELLOW}No suppression.csv found{Style.RESET_ALL}")
+                print(f"  {Fore.YELLOW}No suppression files found{Style.RESET_ALL}")
+        else:
+            print(f"  {Fore.YELLOW}Suppress folder does not exist{Style.RESET_ALL}")
 
         print(f"\n{Fore.CYAN}Output Files:{Style.RESET_ALL}")
         if output_path.exists():
@@ -211,6 +220,8 @@ class MainMenu:
                         print(f"    - {file.name} ({size_mb:.2f} MB)")
             else:
                 print(f"  {Fore.YELLOW}No output files yet{Style.RESET_ALL}")
+        else:
+            print(f"  {Fore.YELLOW}Output folder does not exist{Style.RESET_ALL}")
 
         print()
 
@@ -267,9 +278,8 @@ class MainMenu:
         input_path = customer_path / "input"
         output_path = customer_path / "output"
 
-        # Check if input folder has CSV files (excluding suppression.csv)
+        # Check if input folder has CSV files
         csv_files = list(input_path.glob("*.csv")) if input_path.exists() else []
-        csv_files = [f for f in csv_files if f.name != "suppression.csv"]
 
         if not csv_files:
             self.print_error(f"No CSV files found in {input_path}")
@@ -278,10 +288,12 @@ class MainMenu:
             return
 
         try:
+            suppress_path = customer_path / "suppress"
             generator = DynamicTableGenerator(
                 input_folder=str(input_path),
                 output_folder=str(output_path),
-                customer_name=customer_name
+                customer_name=customer_name,
+                suppress_folder=str(suppress_path) if suppress_path.exists() else None
             )
             generator.process_csv_files()
 
@@ -327,7 +339,7 @@ class MainMenu:
         # Initialize components
         console = ConsoleInterface(config.language)
         progress = ProgressTracker()
-        progress.set_total_steps(10)
+        progress.set_total_steps(11)  # Increased from 10 to account for suppression step
 
         try:
             self.print_success(f"Client selected: {customer}")
@@ -389,6 +401,20 @@ class MainMenu:
             df = processor.consolidate_dataframes(all_dataframes)
             self.print_info(f"Consolidated {len(df):,} total rows")
             progress.step_completed("Data consolidated")
+
+            # Step 5.5: Apply suppression before any processing
+            console.print_section("Applying Suppression")
+            dupe_manager = DuplicateManager()
+            suppression_records = dupe_manager.load_suppression_records(config.paths.suppress_path)
+
+            if suppression_records:
+                self.print_info(f"Loaded {len(suppression_records):,} suppression records")
+                df, suppressed_count = processor.apply_suppression(df, suppression_records)
+                self.print_success(f"Suppressed {suppressed_count:,} properties")
+            else:
+                self.print_info("No suppression records found - skipping suppression")
+
+            progress.step_completed("Suppression applied")
 
             # Step 6: Data cleaning and transformation
             logger.info("Starting data cleaning and transformation...")

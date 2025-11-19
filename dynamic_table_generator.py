@@ -18,11 +18,15 @@ warnings.filterwarnings('ignore')
 class DynamicTableGenerator:
     """Generator for creating dynamic tables from CSV data with specified ranges."""
 
-    def __init__(self, input_folder='Files', output_folder='output', customer_name=None):
+    def __init__(self, input_folder='Files', output_folder='output', customer_name=None, suppress_folder=None):
         self.input_folder = Path(input_folder)
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(exist_ok=True)
         self.customer_name = customer_name
+        self.suppress_folder = Path(suppress_folder) if suppress_folder else None
+
+        # Suppression records will be loaded in process_csv_files
+        self.suppression_records = set()
 
         # Define all range buckets
         self.define_ranges()
@@ -224,13 +228,137 @@ class DynamicTableGenerator:
         # If no range found, return the last range
         return ranges[-1][1]
 
+    def load_suppression_records(self):
+        """Load suppression records from the suppress folder."""
+        if not self.suppress_folder or not self.suppress_folder.exists():
+            print("No suppression folder specified or folder does not exist - skipping suppression")
+            return set()
+
+        from glob import glob
+
+        # Find CSV and Excel files
+        csv_files = glob(str(self.suppress_folder / "*.csv"))
+        xlsx_files = glob(str(self.suppress_folder / "*.xlsx"))
+        all_files = csv_files + xlsx_files
+
+        if not all_files:
+            print(f"No suppression files found in: {self.suppress_folder}")
+            return set()
+
+        print(f"\n{'=' * 80}")
+        print(f"LOADING SUPPRESSION RECORDS")
+        print(f"{'=' * 80}")
+        print(f"Found {len(all_files)} suppression file(s)")
+
+        suppression_records = set()
+
+        for file_path in all_files:
+            file_path = Path(file_path)
+            print(f"  - Loading: {file_path.name}")
+
+            try:
+                # Read file based on extension
+                if file_path.suffix.lower() == '.csv':
+                    df = pd.read_csv(file_path, low_memory=False)
+                elif file_path.suffix.lower() in ['.xlsx', '.xls']:
+                    df = pd.read_excel(file_path)
+                else:
+                    print(f"    ⚠ Unsupported file type: {file_path.suffix}")
+                    continue
+
+                # Look for address and zip columns
+                property_addr_cols = [
+                    'PROPERTY ADDRESS', 'PropertyAddress', 'Property_Address',
+                    'SitusFullStreetAddress', 'Situs_Full_Street_Address'
+                ]
+                mailing_addr_cols = [
+                    'MAILING ADDRESS', 'MailingAddress', 'Mailing_Address',
+                    'MailingFullStreetAddress', 'Mailing_Full_Street_Address'
+                ]
+                zip_cols = [
+                    'PROPERTY ZIP', 'PropertyZIP', 'SitusZIP5', 'SitusZIP',
+                    'MAILING ZIP', 'MailingZIP', 'MailingZIP5',
+                    'ZIP', 'Zip', 'ZipCode'
+                ]
+
+                # Find which columns exist
+                property_col = next((col for col in property_addr_cols if col in df.columns), None)
+                mailing_col = next((col for col in mailing_addr_cols if col in df.columns), None)
+                zip_col = next((col for col in zip_cols if col in df.columns), None)
+
+                if not property_col and not mailing_col:
+                    print(f"    ⚠ No address columns found in {file_path.name}")
+                    continue
+
+                # Extract records from property address
+                if property_col:
+                    for _, row in df.iterrows():
+                        addr = row.get(property_col)
+                        zip_code = row.get(zip_col) if zip_col else ''
+                        if pd.notna(addr) and str(addr).strip():
+                            clean_addr = str(addr).strip().lower()
+                            clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
+                            suppression_records.add((clean_addr, clean_zip))
+
+                # Extract records from mailing address
+                if mailing_col:
+                    for _, row in df.iterrows():
+                        addr = row.get(mailing_col)
+                        zip_code = row.get(zip_col) if zip_col else ''
+                        if pd.notna(addr) and str(addr).strip():
+                            clean_addr = str(addr).strip().lower()
+                            clean_zip = str(zip_code).strip() if pd.notna(zip_code) else ''
+                            suppression_records.add((clean_addr, clean_zip))
+
+                print(f"    ✓ Loaded {len(suppression_records):,} total suppression records so far")
+
+            except Exception as e:
+                print(f"    ✗ Error reading {file_path.name}: {e}")
+                continue
+
+        print(f"\n✓ Total suppression records loaded: {len(suppression_records):,}")
+        print(f"{'=' * 80}\n")
+
+        return suppression_records
+
+    def is_suppressed(self, row):
+        """Check if a row should be suppressed based on loaded suppression records."""
+        if not self.suppression_records:
+            return False
+
+        # Check property address
+        situs_addr = row.get('SitusFullStreetAddress')
+        situs_zip = row.get('SitusZIP5')
+        if pd.notna(situs_addr) and pd.notna(situs_zip):
+            clean_addr = str(situs_addr).strip().lower()
+            clean_zip = str(situs_zip).strip()
+            if (clean_addr, clean_zip) in self.suppression_records:
+                return True
+
+        # Check mailing address
+        mailing_addr = row.get('MailingFullStreetAddress')
+        mailing_zip = row.get('MailingZIP5')
+        if pd.notna(mailing_addr) and pd.notna(mailing_zip):
+            clean_addr = str(mailing_addr).strip().lower()
+            clean_zip = str(mailing_zip).strip()
+            if (clean_addr, clean_zip) in self.suppression_records:
+                return True
+
+        return False
+
     def process_csv_files(self):
         """Process all CSV files and generate the dynamic table."""
         print("=" * 80)
         print("DYNAMIC TABLE GENERATOR")
         print("=" * 80)
         print(f"\nInput Folder: {self.input_folder}")
-        print(f"Output Folder: {self.output_folder}\n")
+        print(f"Output Folder: {self.output_folder}")
+        if self.suppress_folder:
+            print(f"Suppress Folder: {self.suppress_folder}")
+        print()
+
+        # Load suppression records BEFORE processing
+        self.suppression_records = self.load_suppression_records()
 
         # Find all CSV files
         csv_files = list(self.input_folder.glob('*.csv'))
@@ -247,6 +375,7 @@ class DynamicTableGenerator:
         # Initialize data aggregator
         aggregated_data = defaultdict(int)
         total_rows_processed = 0
+        total_rows_suppressed = 0
 
         # Statistics tracking
         date_stats = {
@@ -271,6 +400,11 @@ class DynamicTableGenerator:
                 # Process each row with progress bar
                 print("\nProcessing rows...")
                 for idx, row in tqdm(df.iterrows(), total=len(df), desc="Processing", unit="rows"):
+                    # Check if this row should be suppressed
+                    if self.is_suppressed(row):
+                        total_rows_suppressed += 1
+                        continue
+
                     # Extract dimension values
                     fips = str(row.get('FIPS', 'Unknown'))
                     situs_city = str(row.get('SitusCity', 'Unknown'))
@@ -350,6 +484,7 @@ class DynamicTableGenerator:
         print(f"PROCESSING COMPLETE")
         print(f"{'=' * 80}")
         print(f"Total rows processed: {total_rows_processed:,}")
+        print(f"Total rows suppressed: {total_rows_suppressed:,}")
         print(f"Unique combinations: {len(aggregated_data):,}")
 
         # Print date statistics
@@ -439,9 +574,24 @@ class DynamicTableGenerator:
 
 
 def main():
-    """Main execution function."""
+    """
+    Main execution function (legacy - for backward compatibility).
+
+    NOTE: It is recommended to use main_menu.py instead, which provides
+    proper customer folder structure support and suppression handling.
+    """
+    print("\n" + "=" * 80)
+    print("NOTICE: Direct execution of this script is deprecated.")
+    print("Please use 'python main_menu.py' for proper customer folder support.")
+    print("=" * 80 + "\n")
+
     try:
-        generator = DynamicTableGenerator(input_folder='Files', output_folder='output')
+        # Legacy mode - uses old 'Files' folder structure
+        generator = DynamicTableGenerator(
+            input_folder='Files',
+            output_folder='output',
+            suppress_folder=None  # No suppression in legacy mode
+        )
         result_df = generator.process_csv_files()
 
         print(f"\n{'=' * 80}")

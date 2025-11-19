@@ -18,10 +18,11 @@ warnings.filterwarnings('ignore')
 class DynamicTableGenerator:
     """Generator for creating dynamic tables from CSV data with specified ranges."""
 
-    def __init__(self, input_folder='Files', output_folder='output'):
+    def __init__(self, input_folder='Files', output_folder='output', customer_name=None):
         self.input_folder = Path(input_folder)
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(exist_ok=True)
+        self.customer_name = customer_name
 
         # Define all range buckets
         self.define_ranges()
@@ -162,20 +163,38 @@ class DynamicTableGenerator:
             # Try to parse the date
             if isinstance(date_value, str):
                 # Handle various date formats
-                if '-' in date_value:
-                    date_obj = pd.to_datetime(date_value)
+                if '-' in date_value or '/' in date_value:
+                    date_obj = pd.to_datetime(date_value, errors='coerce')
+                    if pd.isna(date_obj):
+                        return None
                 else:
                     # Assume it's a year
-                    date_obj = pd.to_datetime(date_value + '-01-01')
+                    try:
+                        year = int(date_value)
+                        if year < 1800 or year > 2100:
+                            return None
+                        date_obj = pd.to_datetime(f'{year}-01-01')
+                    except ValueError:
+                        return None
+            elif isinstance(date_value, (int, float)):
+                # Handle numeric year values
+                year = int(date_value)
+                if year < 1800 or year > 2100:
+                    return None
+                date_obj = pd.to_datetime(f'{year}-01-01')
             else:
-                date_obj = pd.to_datetime(date_value)
+                date_obj = pd.to_datetime(date_value, errors='coerce')
+                if pd.isna(date_obj):
+                    return None
 
             # Calculate years ago
             current_date = datetime.now()
             years_ago = (current_date - date_obj).days / 365.25
             return years_ago
 
-        except:
+        except Exception as e:
+            # Log the error for debugging
+            # print(f"Warning: Could not parse date '{date_value}': {e}")
             return None
 
     def categorize_date(self, date_value, ranges):
@@ -209,7 +228,8 @@ class DynamicTableGenerator:
         csv_files = list(self.input_folder.glob('*.csv'))
         print(f"Found {len(csv_files)} CSV file(s) to process:\n")
         for csv_file in csv_files:
-            print(f"  - {csv_file.name}")
+            file_size_mb = csv_file.stat().st_size / (1024 * 1024)
+            print(f"  - {csv_file.name} ({file_size_mb:.2f} MB)")
         print()
 
         if not csv_files:
@@ -219,6 +239,14 @@ class DynamicTableGenerator:
         # Initialize data aggregator
         aggregated_data = defaultdict(int)
         total_rows_processed = 0
+
+        # Statistics tracking
+        date_stats = {
+            'buildDate_valid': 0,
+            'buildDate_invalid': 0,
+            'saleDate_valid': 0,
+            'saleDate_invalid': 0
+        }
 
         # Process each CSV file
         for csv_file in csv_files:
@@ -264,16 +292,26 @@ class DynamicTableGenerator:
                         self.living_area_ranges
                     )
 
-                    # Categorize dates
+                    # Categorize dates and track statistics
+                    build_date_value = row.get('buildDate')
                     build_date_range = self.categorize_date(
-                        row.get('buildDate'),
+                        build_date_value,
                         self.build_date_ranges
                     )
+                    if build_date_range != 'Unknown':
+                        date_stats['buildDate_valid'] += 1
+                    else:
+                        date_stats['buildDate_invalid'] += 1
 
+                    sale_date_value = row.get('saleDate')
                     sale_date_range = self.categorize_date(
-                        row.get('saleDate'),
+                        sale_date_value,
                         self.sale_date_ranges
                     )
+                    if sale_date_range != 'Unknown':
+                        date_stats['saleDate_valid'] += 1
+                    else:
+                        date_stats['saleDate_invalid'] += 1
 
                     # Create a key for aggregation
                     key = (
@@ -304,7 +342,19 @@ class DynamicTableGenerator:
         print(f"PROCESSING COMPLETE")
         print(f"{'=' * 80}")
         print(f"Total rows processed: {total_rows_processed:,}")
-        print(f"Unique combinations: {len(aggregated_data):,}\n")
+        print(f"Unique combinations: {len(aggregated_data):,}")
+
+        # Print date statistics
+        print(f"\n{'=' * 80}")
+        print("DATE PROCESSING STATISTICS")
+        print(f"{'=' * 80}")
+        print(f"Build Dates:")
+        print(f"  - Valid (parsed): {date_stats['buildDate_valid']:,} ({100 * date_stats['buildDate_valid'] / max(1, total_rows_processed):.1f}%)")
+        print(f"  - Invalid/Unknown: {date_stats['buildDate_invalid']:,} ({100 * date_stats['buildDate_invalid'] / max(1, total_rows_processed):.1f}%)")
+        print(f"Sale Dates:")
+        print(f"  - Valid (parsed): {date_stats['saleDate_valid']:,} ({100 * date_stats['saleDate_valid'] / max(1, total_rows_processed):.1f}%)")
+        print(f"  - Invalid/Unknown: {date_stats['saleDate_invalid']:,} ({100 * date_stats['saleDate_invalid'] / max(1, total_rows_processed):.1f}%)")
+        print()
 
         # Convert to DataFrame
         print("Creating output table...")
@@ -330,17 +380,37 @@ class DynamicTableGenerator:
         # Sort by number of records (descending)
         output_df = output_df.sort_values('Number_of_Records', ascending=False)
 
-        # Generate output filename with timestamp
+        # Generate output filename with timestamp and customer name
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        output_filename = f'dynamic_table_{timestamp}.csv'
+        if self.customer_name:
+            output_filename = f'{self.customer_name}_dynamic_table_{timestamp}.csv'
+            excel_filename = f'{self.customer_name}_dynamic_table_{timestamp}.xlsx'
+        else:
+            output_filename = f'dynamic_table_{timestamp}.csv'
+            excel_filename = f'dynamic_table_{timestamp}.xlsx'
+
         output_path = self.output_folder / output_filename
+
+        # Verify data integrity before saving
+        print(f"\n{'=' * 80}")
+        print("VERIFYING DATA INTEGRITY")
+        print(f"{'=' * 80}")
+
+        total_counted = output_df['Number_of_Records'].sum()
+        print(f"Records in input: {total_rows_processed:,}")
+        print(f"Records in output: {total_counted:,}")
+
+        if total_counted == total_rows_processed:
+            print(f"✓ Verification PASSED: All records accounted for")
+        else:
+            print(f"⚠ WARNING: Record count mismatch!")
+            print(f"  Difference: {abs(total_counted - total_rows_processed):,}")
 
         # Save to CSV
         output_df.to_csv(output_path, index=False)
-        print(f"✓ Output saved to: {output_path}")
+        print(f"\n✓ CSV output saved to: {output_path}")
 
         # Also save to Excel for better formatting
-        excel_filename = f'dynamic_table_{timestamp}.xlsx'
         excel_path = self.output_folder / excel_filename
         try:
             output_df.to_excel(excel_path, index=False, sheet_name='Dynamic Table')

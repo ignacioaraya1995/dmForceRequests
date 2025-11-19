@@ -30,11 +30,12 @@ class DynamicTableGenerator:
     def define_ranges(self):
         """Define all range buckets for numeric columns."""
 
-        # Total Value Ranges (in dollars)
+        # Total Value Ranges (in dollars, values in thousands)
+        # Note: Upper bounds are exclusive except for special cases
         self.total_value_ranges = [
             ('Unknowns', 'Unknowns', None, None),
-            ('$0', '$0', 0, 0),
-            ('$1-$25', '$1-$25', 1, 25),
+            ('$0', '$0', 0, 0),  # Exact match
+            ('$1-$25', '$1-$25', 0.001, 25),
             ('$25-$50', '$25-$50', 25, 50),
             ('$50-$100', '$50-$100', 50, 100),
             ('$100-$150', '$100-$150', 100, 150),
@@ -80,20 +81,21 @@ class DynamicTableGenerator:
         ]
 
         # Build Date Ranges (years ago from current date)
+        # Note: Upper bounds are exclusive (e.g., "0-1 years" means 0 <= years < 2)
         self.build_date_ranges = [
             ('Unknown', 'Unknown', None, None),
-            ('0-1 years', '0-1 years', 0, 1),
-            ('2-4 years', '2-4 years', 2, 4),
-            ('5-7 years', '5-7 years', 5, 7),
-            ('8-9 years', '8-9 years', 8, 9),
-            ('10-14 years', '10-14 years', 10, 14),
-            ('15-19 years', '15-19 years', 15, 19),
-            ('20-24 years', '20-24 years', 20, 24),
-            ('25-29 years', '25-29 years', 25, 29),
-            ('30-39 years', '30-39 years', 30, 39),
-            ('40-49 years', '40-49 years', 40, 49),
-            ('50-74 years', '50-74 years', 50, 74),
-            ('75-99 years', '75-99 years', 75, 99),
+            ('0-1 years', '0-1 years', 0, 2),
+            ('2-4 years', '2-4 years', 2, 5),
+            ('5-7 years', '5-7 years', 5, 8),
+            ('8-9 years', '8-9 years', 8, 10),
+            ('10-14 years', '10-14 years', 10, 15),
+            ('15-19 years', '15-19 years', 15, 20),
+            ('20-24 years', '20-24 years', 20, 25),
+            ('25-29 years', '25-29 years', 25, 30),
+            ('30-39 years', '30-39 years', 30, 40),
+            ('40-49 years', '40-49 years', 40, 50),
+            ('50-74 years', '50-74 years', 50, 75),
+            ('75-99 years', '75-99 years', 75, 100),
             ('100+ years', '100+ years', 100, float('inf'))
         ]
 
@@ -108,20 +110,21 @@ class DynamicTableGenerator:
         ]
 
         # Sale Date Ranges (years ago from current date)
+        # Note: Upper bounds are exclusive (e.g., "0-1 years" means 0 <= years < 2)
         self.sale_date_ranges = [
             ('Unknown', 'Unknown', None, None),
-            ('0-1 years', '0-1 years', 0, 1),
-            ('2-4 years', '2-4 years', 2, 4),
-            ('5-7 years', '5-7 years', 5, 7),
-            ('8-9 years', '8-9 years', 8, 9),
-            ('10-14 years', '10-14 years', 10, 14),
-            ('15-19 years', '15-19 years', 15, 19),
-            ('20-24 years', '20-24 years', 20, 24),
-            ('25-29 years', '25-29 years', 25, 29),
-            ('30-39 years', '30-39 years', 30, 39),
-            ('40-49 years', '40-49 years', 40, 49),
-            ('50-74 years', '50-74 years', 50, 74),
-            ('75-99 years', '75-99 years', 75, 99),
+            ('0-1 years', '0-1 years', 0, 2),
+            ('2-4 years', '2-4 years', 2, 5),
+            ('5-7 years', '5-7 years', 5, 8),
+            ('8-9 years', '8-9 years', 8, 10),
+            ('10-14 years', '10-14 years', 10, 15),
+            ('15-19 years', '15-19 years', 15, 20),
+            ('20-24 years', '20-24 years', 20, 25),
+            ('25-29 years', '25-29 years', 25, 30),
+            ('30-39 years', '30-39 years', 30, 40),
+            ('40-49 years', '40-49 years', 40, 50),
+            ('50-74 years', '50-74 years', 50, 75),
+            ('75-99 years', '75-99 years', 75, 100),
             ('100+ years', '100+ years', 100, float('inf'))
         ]
 
@@ -143,6 +146,10 @@ class DynamicTableGenerator:
             for range_label, range_display, min_val, max_val in ranges:
                 if min_val is None:  # This is the Unknown category
                     continue
+                # Special case: exact match for ranges where min_val == max_val (like $0)
+                if min_val == max_val and num_value == min_val:
+                    return range_display
+                # Use < for upper bound (ranges are defined with exclusive upper bounds)
                 if min_val <= num_value < max_val:
                     return range_display
                 if min_val <= num_value and max_val == float('inf'):
@@ -208,6 +215,7 @@ class DynamicTableGenerator:
         for range_label, range_display, min_val, max_val in ranges:
             if min_val is None:  # This is the Unknown category
                 continue
+            # Use < for upper bound (ranges are defined with exclusive upper bounds)
             if min_val <= years_ago < max_val:
                 return range_display
             if min_val <= years_ago and max_val == float('inf'):

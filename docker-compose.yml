@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  data-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: data-analyzer
+    stdin_open: true  # Enable interactive mode
+    tty: true         # Allocate a pseudo-TTY
+    volumes:
+      # Mount data directory to persist data between runs
+      - ./data:/app/data
+      # Mount main.py for development (optional, comment out for production)
+      - ./main.py:/app/main.py
+    environment:
+      - TZ=UTC
+    restart: "no"  # Don't restart automatically

@@ -398,10 +398,73 @@ class DynamicTableGenerator:
 
         return df_filtered, suppressed_count
 
+    def categorize_column_vectorized(self, series, ranges, value_is_dollar=False):
+        """Vectorized categorization of a pandas Series into ranges."""
+        # Handle dollar values - convert to thousands
+        if value_is_dollar:
+            series = pd.to_numeric(series, errors='coerce') / 1000
+        else:
+            series = pd.to_numeric(series, errors='coerce')
+
+        # Create result series filled with the unknown category
+        result = pd.Series([ranges[0][1]] * len(series), index=series.index)
+
+        # Process each range
+        for range_label, range_display, min_val, max_val in ranges:
+            if min_val is None:  # Skip the Unknown category
+                continue
+
+            if min_val == max_val:  # Exact match ranges (like $0)
+                mask = series == min_val
+            elif max_val == float('inf'):  # Open-ended ranges
+                mask = series >= min_val
+            else:  # Normal ranges
+                mask = (series >= min_val) & (series < max_val)
+
+            result[mask] = range_display
+
+        return result
+
+    def categorize_dates_vectorized(self, series, ranges):
+        """Vectorized categorization of date column into years-ago ranges."""
+        # Convert to datetime
+        date_series = pd.to_datetime(series, errors='coerce')
+
+        # For numeric years, convert to datetime
+        numeric_mask = pd.to_numeric(series, errors='coerce').notna() & date_series.isna()
+        if numeric_mask.any():
+            numeric_years = pd.to_numeric(series[numeric_mask], errors='coerce')
+            # Filter valid years
+            valid_years = (numeric_years >= 1800) & (numeric_years <= 2100)
+            if valid_years.any():
+                year_dates = pd.to_datetime(numeric_years[valid_years].astype(int).astype(str) + '-01-01', errors='coerce')
+                date_series[numeric_mask] = year_dates
+
+        # Calculate years ago
+        current_date = datetime.now()
+        years_ago = (current_date - date_series).dt.days / 365.25
+
+        # Create result series filled with Unknown
+        result = pd.Series([ranges[0][1]] * len(series), index=series.index)
+
+        # Process each range
+        for range_label, range_display, min_val, max_val in ranges:
+            if min_val is None:  # Skip Unknown category
+                continue
+
+            if max_val == float('inf'):  # Open-ended ranges
+                mask = years_ago >= min_val
+            else:  # Normal ranges
+                mask = (years_ago >= min_val) & (years_ago < max_val)
+
+            result[mask] = range_display
+
+        return result, years_ago.notna()
+
     def process_csv_files(self):
-        """Process all CSV files and generate the dynamic table."""
+        """Process all CSV files and generate the dynamic table (VECTORIZED VERSION)."""
         print("=" * 80)
-        print("DYNAMIC TABLE GENERATOR")
+        print("DYNAMIC TABLE GENERATOR (OPTIMIZED)")
         print("=" * 80)
         print(f"\nInput Folder: {self.input_folder}")
         print(f"Output Folder: {self.output_folder}")
@@ -424,9 +487,8 @@ class DynamicTableGenerator:
             print("ERROR: No CSV files found in the input folder!")
             return
 
-        # Initialize data aggregator
-        aggregated_data = defaultdict(int)
-        total_rows_processed = 0
+        # Collect all processed dataframes
+        all_processed_dfs = []
         total_rows_suppressed = 0
 
         # Statistics tracking
@@ -444,103 +506,122 @@ class DynamicTableGenerator:
             print(f"{'=' * 80}")
 
             try:
-                # Read CSV with progress
+                # Read CSV
                 print("Loading CSV file...")
                 df = pd.read_csv(csv_file, low_memory=False)
                 print(f"✓ Loaded {len(df):,} rows")
 
-                # Apply suppression filter BEFORE processing rows - VECTORIZED
+                # Apply suppression filter BEFORE processing rows
                 if self.suppression_records:
                     print("Applying suppression filter (vectorized)...")
                     df, file_suppressed = self.filter_suppressed_vectorized(df)
                     total_rows_suppressed += file_suppressed
                     print(f"✓ Suppressed {file_suppressed:,} rows, {len(df):,} rows remaining")
 
-                # Process each row with progress bar
-                print("\nProcessing rows...")
-                for idx, row in tqdm(df.iterrows(), total=len(df), desc="Processing", unit="rows"):
+                if len(df) == 0:
+                    print("⚠ No rows remaining after suppression, skipping file")
+                    continue
 
-                    # Extract dimension values
-                    fips = str(row.get('FIPS', 'Unknown'))
-                    situs_city = str(row.get('SitusCity', 'Unknown'))
-                    situs_zip = str(row.get('SitusZIP5', 'Unknown'))
-                    owner_type = str(row.get('Owner_Type', 'Unknown'))
-                    use_type = str(row.get('Use_Type', 'Unknown'))
+                # VECTORIZED PROCESSING - Process entire columns at once
+                print("Processing data (vectorized operations)...")
 
-                    # Categorize numeric values
-                    total_value_range = self.categorize_value(
-                        row.get('totalValue'),
-                        self.total_value_ranges,
-                        value_is_dollar=True
-                    )
+                # Extract dimension values (string columns)
+                df['FIPS'] = df['FIPS'].fillna('Unknown').astype(str)
+                df['SitusCity'] = df['SitusCity'].fillna('Unknown').astype(str)
+                df['SitusZIP5'] = df['SitusZIP5'].fillna('Unknown').astype(str)
+                df['Owner_Type'] = df['Owner_Type'].fillna('Unknown').astype(str)
+                df['Use_Type'] = df['Use_Type'].fillna('Unknown').astype(str)
 
-                    ltv_range = self.categorize_value(
-                        row.get('LTV'),
-                        self.ltv_ranges
-                    )
+                # Categorize numeric columns using vectorized operations
+                df['TotalValue_Range'] = self.categorize_column_vectorized(
+                    df['totalValue'] if 'totalValue' in df.columns else pd.Series([None] * len(df)),
+                    self.total_value_ranges,
+                    value_is_dollar=True
+                )
 
-                    lot_size_range = self.categorize_value(
-                        row.get('LotSizeSqFt'),
-                        self.lot_size_ranges
-                    )
+                df['LTV_Range'] = self.categorize_column_vectorized(
+                    df['LTV'] if 'LTV' in df.columns else pd.Series([None] * len(df)),
+                    self.ltv_ranges
+                )
 
-                    living_area_range = self.categorize_value(
-                        row.get('SumLivingAreaSqFt'),
-                        self.living_area_ranges
-                    )
+                df['LotSizeSqFt_Range'] = self.categorize_column_vectorized(
+                    df['LotSizeSqFt'] if 'LotSizeSqFt' in df.columns else pd.Series([None] * len(df)),
+                    self.lot_size_ranges
+                )
 
-                    # Categorize dates and track statistics
-                    build_date_value = row.get('buildDate')
-                    build_date_range = self.categorize_date(
-                        build_date_value,
-                        self.build_date_ranges
-                    )
-                    if build_date_range != 'Unknown':
-                        date_stats['buildDate_valid'] += 1
-                    else:
-                        date_stats['buildDate_invalid'] += 1
+                df['SumLivingAreaSqFt_Range'] = self.categorize_column_vectorized(
+                    df['SumLivingAreaSqFt'] if 'SumLivingAreaSqFt' in df.columns else pd.Series([None] * len(df)),
+                    self.living_area_ranges
+                )
 
-                    sale_date_value = row.get('saleDate')
-                    sale_date_range = self.categorize_date(
-                        sale_date_value,
-                        self.sale_date_ranges
-                    )
-                    if sale_date_range != 'Unknown':
-                        date_stats['saleDate_valid'] += 1
-                    else:
-                        date_stats['saleDate_invalid'] += 1
+                # Categorize date columns using vectorized operations
+                build_date_range, build_valid = self.categorize_dates_vectorized(
+                    df['buildDate'] if 'buildDate' in df.columns else pd.Series([None] * len(df)),
+                    self.build_date_ranges
+                )
+                df['BuildDate_Range'] = build_date_range
+                date_stats['buildDate_valid'] += build_valid.sum()
+                date_stats['buildDate_invalid'] += (~build_valid).sum()
 
-                    # Create a key for aggregation
-                    key = (
-                        fips,
-                        situs_city,
-                        situs_zip,
-                        owner_type,
-                        use_type,
-                        sale_date_range,
-                        build_date_range,
-                        total_value_range,
-                        ltv_range,
-                        lot_size_range,
-                        living_area_range
-                    )
+                sale_date_range, sale_valid = self.categorize_dates_vectorized(
+                    df['saleDate'] if 'saleDate' in df.columns else pd.Series([None] * len(df)),
+                    self.sale_date_ranges
+                )
+                df['SaleDate_Range'] = sale_date_range
+                date_stats['saleDate_valid'] += sale_valid.sum()
+                date_stats['saleDate_invalid'] += (~sale_valid).sum()
 
-                    # Increment count
-                    aggregated_data[key] += 1
-                    total_rows_processed += 1
+                # Select only the columns we need for aggregation
+                aggregation_cols = [
+                    'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
+                    'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
+                    'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
+                ]
 
-                print(f"✓ Processed {len(df):,} rows from {csv_file.name}")
+                df_agg = df[aggregation_cols].copy()
+                all_processed_dfs.append(df_agg)
+
+                print(f"✓ Processed {len(df):,} rows from {csv_file.name} (vectorized)")
 
             except Exception as e:
                 print(f"✗ ERROR processing {csv_file.name}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 continue
+
+        # Combine all processed dataframes
+        if not all_processed_dfs:
+            print("ERROR: No data was processed!")
+            return
+
+        print(f"\n{'=' * 80}")
+        print("AGGREGATING DATA")
+        print(f"{'=' * 80}")
+        print("Combining all dataframes...")
+        combined_df = pd.concat(all_processed_dfs, ignore_index=True)
+        total_rows_processed = len(combined_df)
+
+        print(f"✓ Combined {len(all_processed_dfs)} file(s) into {total_rows_processed:,} total rows")
+
+        # Aggregate using groupby - MUCH faster than dictionary approach
+        print("Performing aggregation (using groupby)...")
+        aggregation_cols = [
+            'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
+            'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
+            'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
+        ]
+
+        output_df = combined_df.groupby(aggregation_cols, as_index=False, dropna=False).size()
+        output_df.rename(columns={'size': 'Number_of_Records'}, inplace=True)
+
+        print(f"✓ Created {len(output_df):,} unique combinations")
 
         print(f"\n{'=' * 80}")
         print(f"PROCESSING COMPLETE")
         print(f"{'=' * 80}")
         print(f"Total rows processed: {total_rows_processed:,}")
         print(f"Total rows suppressed: {total_rows_suppressed:,}")
-        print(f"Unique combinations: {len(aggregated_data):,}")
+        print(f"Unique combinations: {len(output_df):,}")
 
         # Print date statistics
         print(f"\n{'=' * 80}")
@@ -553,27 +634,6 @@ class DynamicTableGenerator:
         print(f"  - Valid (parsed): {date_stats['saleDate_valid']:,} ({100 * date_stats['saleDate_valid'] / max(1, total_rows_processed):.1f}%)")
         print(f"  - Invalid/Unknown: {date_stats['saleDate_invalid']:,} ({100 * date_stats['saleDate_invalid'] / max(1, total_rows_processed):.1f}%)")
         print()
-
-        # Convert to DataFrame
-        print("Creating output table...")
-        output_data = []
-        for key, count in aggregated_data.items():
-            output_data.append({
-                'FIPS': key[0],
-                'SitusCity': key[1],
-                'SitusZIP5': key[2],
-                'Owner_Type': key[3],
-                'Use_Type': key[4],
-                'SaleDate_Range': key[5],
-                'BuildDate_Range': key[6],
-                'TotalValue_Range': key[7],
-                'LTV_Range': key[8],
-                'LotSizeSqFt_Range': key[9],
-                'SumLivingAreaSqFt_Range': key[10],
-                'Number_of_Records': count
-            })
-
-        output_df = pd.DataFrame(output_data)
 
         # Sort by number of records (descending)
         output_df = output_df.sort_values('Number_of_Records', ascending=False)

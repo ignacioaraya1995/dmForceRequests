@@ -123,12 +123,17 @@ class PathConfig:
     # Base directory (project root)
     base_dir: Path = field(default_factory=lambda: Path.cwd())
 
-    # Input folders
-    input_folder: str = "Files"
-    dupes_folder: str = "Dupes"
+    # Client name for folder organization
+    client_name: str = ""
 
-    # Output folder
-    output_folder: str = "Output File"
+    # Data folder structure
+    data_folder: str = "data"
+    input_folder_name: str = "input"
+    output_folder_name: str = "output"
+
+    # Legacy folders (backwards compatibility)
+    legacy_input_folder: str = "Files"
+    dupes_folder: str = "Dupes"
 
     # Reference data
     fips_filename: str = "FIPs.xlsx"
@@ -140,10 +145,24 @@ class PathConfig:
         """Convert string paths to Path objects."""
         self.base_dir = Path(self.base_dir)
 
+    def set_client_name(self, client_name: str) -> None:
+        """
+        Set the client name for folder paths.
+
+        Args:
+            client_name: Name of the client
+        """
+        self.client_name = client_name
+
     @property
     def input_path(self) -> Path:
         """Get full input folder path."""
-        return self.base_dir / self.input_folder
+        if self.client_name:
+            # New structure: data/client_name/input
+            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name
+        else:
+            # Legacy structure: Files
+            return self.base_dir / self.legacy_input_folder
 
     @property
     def dupes_path(self) -> Path:
@@ -153,7 +172,12 @@ class PathConfig:
     @property
     def output_path(self) -> Path:
         """Get full output folder path."""
-        return self.base_dir / self.output_folder
+        if self.client_name:
+            # New structure: data/client_name/output
+            return self.base_dir / self.data_folder / self.client_name / self.output_folder_name
+        else:
+            # Legacy structure: Output File
+            return self.base_dir / "Output File"
 
     @property
     def fips_file_path(self) -> Path:
@@ -167,6 +191,7 @@ class PathConfig:
 
     def ensure_directories(self) -> None:
         """Create necessary directories if they don't exist."""
+        self.input_path.mkdir(parents=True, exist_ok=True)
         self.output_path.mkdir(parents=True, exist_ok=True)
         self.log_path.mkdir(parents=True, exist_ok=True)
 

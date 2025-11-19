@@ -1,14 +1,17 @@
 """
 Console interface module for user interactions.
-Provides professional console output and user input handling.
+Provides professional console output and user input handling with colors and emojis.
 """
 
 import pandas as pd
 from typing import Optional, List, Tuple
+from colorama import Fore, Back, Style, init
 
 from src.utils.logger import get_logger
 from src.utils.config import LanguageConfig
 
+# Initialize colorama for cross-platform color support
+init(autoreset=True)
 
 logger = get_logger(__name__)
 
@@ -28,61 +31,61 @@ class ConsoleInterface:
 
     def print_header(self, title: str) -> None:
         """
-        Print a formatted header.
+        Print a formatted header with colors and emojis.
 
         Args:
             title: Header title
         """
         width = 60
-        print("\n" + "=" * width)
-        print(title.center(width))
-        print("=" * width + "\n")
+        print(f"\n{Fore.CYAN}{Style.BRIGHT}{'=' * width}")
+        print(f"🏠  {title.center(width - 4)}  🏠")
+        print(f"{'=' * width}{Style.RESET_ALL}\n")
 
     def print_section(self, title: str) -> None:
         """
-        Print a section divider.
+        Print a section divider with colors and emojis.
 
         Args:
             title: Section title
         """
-        print(f"\n--- {title} ---\n")
+        print(f"\n{Fore.BLUE}{Style.BRIGHT}📂 --- {title} ---{Style.RESET_ALL}\n")
 
     def print_info(self, message: str, prefix: str = "INFO") -> None:
         """
-        Print an info message.
+        Print an info message with colors and emojis.
 
         Args:
             message: Message to print
             prefix: Prefix for the message
         """
-        print(f"[{prefix}] {message}")
+        print(f"{Fore.BLUE}ℹ️  {message}{Style.RESET_ALL}")
 
     def print_success(self, message: str) -> None:
         """
-        Print a success message.
+        Print a success message with colors and emojis.
 
         Args:
             message: Success message
         """
-        print(f"[SUCCESS] {message}")
+        print(f"{Fore.GREEN}{Style.BRIGHT}✅ {message}{Style.RESET_ALL}")
 
     def print_warning(self, message: str) -> None:
         """
-        Print a warning message.
+        Print a warning message with colors and emojis.
 
         Args:
             message: Warning message
         """
-        print(f"[WARNING] {message}")
+        print(f"{Fore.YELLOW}⚠️  {message}{Style.RESET_ALL}")
 
     def print_error(self, message: str) -> None:
         """
-        Print an error message.
+        Print an error message with colors and emojis.
 
         Args:
             message: Error message
         """
-        print(f"[ERROR] {message}")
+        print(f"{Fore.RED}{Style.BRIGHT}❌ {message}{Style.RESET_ALL}")
 
     def get_client_name(self) -> str:
         """
@@ -95,11 +98,11 @@ class ConsoleInterface:
         empty_msg = self.language_config.get_message('client_empty')
 
         while True:
-            client_name = input(msg).strip()
+            client_name = input(f"{Fore.CYAN}👤 {msg}{Style.RESET_ALL}").strip()
             if client_name:
                 logger.info(f"Client name entered: {client_name}")
                 return client_name
-            print(f"[ERROR] {empty_msg}")
+            print(f"{Fore.RED}❌ {empty_msg}{Style.RESET_ALL}")
 
     def confirm_action(self, prompt: str) -> bool:
         """
@@ -111,7 +114,7 @@ class ConsoleInterface:
         Returns:
             True if user confirmed, False otherwise
         """
-        response = input(f"{prompt} (yes/no): ").strip().lower()
+        response = input(f"{Fore.YELLOW}🤔 {prompt} (yes/no): {Style.RESET_ALL}").strip().lower()
         confirmed = response == 'yes'
         logger.debug(f"User confirmation for '{prompt}': {confirmed}")
         return confirmed
@@ -142,23 +145,23 @@ class DataFilter:
         initial_count = len(df)
 
         if initial_count == 0:
-            print(f"[WARNING] No data to filter by {column_name}. Skipping.")
+            print(f"{Fore.YELLOW}⚠️  No data to filter by {column_name}. Skipping.{Style.RESET_ALL}")
             logger.warning(f"Empty dataframe, skipping filter for {column_name}")
             return df
 
         if column_name not in df.columns:
-            print(f"[WARNING] Column '{column_name}' not found. Skipping filter.")
+            print(f"{Fore.YELLOW}⚠️  Column '{column_name}' not found. Skipping filter.{Style.RESET_ALL}")
             logger.warning(f"Column {column_name} not found in dataframe")
             return df
 
         # Show unique values
         unique_items = sorted(df[column_name].dropna().unique())
-        print(f"\nAvailable values for '{column_name}':")
-        print(f"  {', '.join(map(str, unique_items))}")
+        print(f"\n{Fore.CYAN}📋 Available values for '{column_name}':{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}{', '.join(map(str, unique_items))}{Style.RESET_ALL}")
 
         # Get user input
         desired_items_str = input(
-            f"Enter desired '{column_name}' values (comma-separated), or press Enter to skip: "
+            f"{Fore.CYAN}🔍 Enter desired '{column_name}' values (comma-separated), or press Enter to skip: {Style.RESET_ALL}"
         ).strip().lower()
 
         if not desired_items_str:
@@ -176,7 +179,7 @@ class DataFilter:
         df_filtered = df[df[column_name].str.lower().isin(desired_list)].copy()
 
         removed = initial_count - len(df_filtered)
-        print(f"[INFO] Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.\n")
+        print(f"{Fore.GREEN}✅ Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.{Style.RESET_ALL}\n")
         logger.info(f"Text filter on {column_name}: removed {removed:,} rows")
 
         return df_filtered
@@ -199,25 +202,25 @@ class DataFilter:
         initial_count = len(df)
 
         if initial_count == 0:
-            print(f"[WARNING] No data to filter by {column_name}. Skipping.")
+            print(f"{Fore.YELLOW}⚠️  No data to filter by {column_name}. Skipping.{Style.RESET_ALL}")
             logger.warning(f"Empty dataframe, skipping filter for {column_name}")
             return df
 
         if column_name not in df.columns:
-            print(f"[WARNING] Column '{column_name}' not found. Skipping filter.")
+            print(f"{Fore.YELLOW}⚠️  Column '{column_name}' not found. Skipping filter.{Style.RESET_ALL}")
             logger.warning(f"Column {column_name} not found in dataframe")
             return df
 
         # Show current range
         current_min = df[column_name].min()
         current_max = df[column_name].max()
-        print(f"\nCurrent range for '{column_name}':")
-        print(f"  Min = {current_min:,.2f}, Max = {current_max:,.2f}")
+        print(f"\n{Fore.CYAN}📊 Current range for '{column_name}':{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}Min = {current_min:,.2f}, Max = {current_max:,.2f}{Style.RESET_ALL}")
 
         # Get user input
         try:
-            min_val_str = input("Enter the minimum value (or press Enter to skip): ").strip()
-            max_val_str = input("Enter the maximum value (or press Enter to skip): ").strip()
+            min_val_str = input(f"{Fore.CYAN}🔢 Enter the minimum value (or press Enter to skip): {Style.RESET_ALL}").strip()
+            max_val_str = input(f"{Fore.CYAN}🔢 Enter the maximum value (or press Enter to skip): {Style.RESET_ALL}").strip()
 
             # Use current values if not provided
             min_val = float(min_val_str) if min_val_str else current_min
@@ -226,7 +229,7 @@ class DataFilter:
             # Swap if needed
             if min_val > max_val:
                 min_val, max_val = max_val, min_val
-                print("[WARNING] Minimum is greater than maximum; values have been swapped.")
+                print(f"{Fore.YELLOW}⚠️  Minimum is greater than maximum; values have been swapped.{Style.RESET_ALL}")
                 logger.warning(f"Swapped min/max values for {column_name}")
 
             # Apply filter
@@ -235,13 +238,13 @@ class DataFilter:
             ].copy()
 
             removed = initial_count - len(df_filtered)
-            print(f"[INFO] Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.\n")
+            print(f"{Fore.GREEN}✅ Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.{Style.RESET_ALL}\n")
             logger.info(f"Numeric filter on {column_name}: removed {removed:,} rows")
 
             return df_filtered
 
         except ValueError as e:
-            print(f"[ERROR] Invalid numeric input. Filter not applied: {e}")
+            print(f"{Fore.RED}❌ Invalid numeric input. Filter not applied: {e}{Style.RESET_ALL}")
             logger.error(f"Invalid numeric input for {column_name} filter: {e}")
             return df
 
@@ -257,18 +260,18 @@ class DataFilter:
         """
         logger.info("Starting interactive filtering")
 
-        print("\n--- Interactive Filters (Optional) ---\n")
+        print(f"\n{Fore.MAGENTA}{Style.BRIGHT}🎯 --- Interactive Filters (Optional) ---{Style.RESET_ALL}\n")
 
         # Owner Type filter
-        if input("Do you want to filter by OWNER TYPE? (yes/no): ").strip().lower() == 'yes':
+        if input(f"{Fore.YELLOW}🤔 Do you want to filter by OWNER TYPE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
             df = self.apply_text_filter(df, 'OWNER TYPE')
 
         # Property Type filter
-        if input("Do you want to filter by PROPERTY TYPE? (yes/no): ").strip().lower() == 'yes':
+        if input(f"{Fore.YELLOW}🤔 Do you want to filter by PROPERTY TYPE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
             df = self.apply_text_filter(df, 'PROPERTY TYPE')
 
         # Total Value filter
-        if input("Do you want to filter by TOTALVALUE? (yes/no): ").strip().lower() == 'yes':
+        if input(f"{Fore.YELLOW}🤔 Do you want to filter by TOTALVALUE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
             df = self.apply_numeric_filter(df, 'TOTALVALUE')
 
         logger.info("Interactive filtering completed")
@@ -306,10 +309,10 @@ class ProgressTracker:
         self.steps_completed += 1
         if self.total_steps > 0:
             percentage = (self.steps_completed / self.total_steps) * 100
-            print(f"[PROGRESS] Step {self.steps_completed}/{self.total_steps} ({percentage:.1f}%): {message}")
+            print(f"{Fore.CYAN}⏩ Step {self.steps_completed}/{self.total_steps} ({percentage:.1f}%): {message}{Style.RESET_ALL}")
             logger.debug(f"Step {self.steps_completed}/{self.total_steps} completed: {message}")
         else:
-            print(f"[PROGRESS] {message}")
+            print(f"{Fore.CYAN}⏩ {message}{Style.RESET_ALL}")
             logger.debug(f"Step completed: {message}")
 
     def print_summary(self, total_records: int, processing_time: Optional[float] = None) -> None:
@@ -320,13 +323,13 @@ class ProgressTracker:
             total_records: Total number of records processed
             processing_time: Optional processing time in seconds
         """
-        print("\n" + "=" * 60)
-        print("PROCESSING COMPLETE".center(60))
-        print("=" * 60)
-        print(f"Total records: {total_records:,}")
+        print(f"\n{Fore.GREEN}{Style.BRIGHT}{'=' * 60}")
+        print(f"🎉  {'PROCESSING COMPLETE'.center(60 - 4)}  🎉")
+        print(f"{'=' * 60}")
+        print(f"📊 Total records: {total_records:,}")
 
         if processing_time:
-            print(f"Processing time: {processing_time:.2f} seconds")
+            print(f"⏱️  Processing time: {processing_time:.2f} seconds")
 
-        print("=" * 60 + "\n")
+        print(f"{'=' * 60}{Style.RESET_ALL}\n")
         logger.info(f"Processing complete: {total_records:,} records")

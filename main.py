@@ -14,7 +14,7 @@ from src.utils.logger import get_logger
 from src.utils.config import get_default_config
 from src.data_processing.processor import DataProcessor, DataValidator
 from src.file_operations.file_handler import (
-    FileReader, DuplicateManager, ZipExtractor, FolderScanner
+    FileReader, DuplicateManager, ZipExtractor
 )
 from src.file_operations.excel_formatter import ExcelFormatter, ReportGenerator
 from src.ui.console_interface import ConsoleInterface, DataFilter, ProgressTracker
@@ -47,6 +47,14 @@ def main():
         # Step 1: Get client name
         client_name = console.get_client_name()
         console.print_success(f"Client selected: {client_name}")
+
+        # Set client name in configuration to update folder paths
+        config.paths.set_client_name(client_name)
+        config.ensure_setup()  # Create client-specific directories
+
+        console.print_info(f"📁 Input folder: {config.paths.input_path}")
+        console.print_info(f"📁 Output folder: {config.paths.output_path}")
+
         progress.step_completed("Client name collected")
 
         # Step 2: Extract ZIP files if present
@@ -57,19 +65,15 @@ def main():
             console.print_success(f"Extracted {extracted_count} ZIP file(s)")
         progress.step_completed("ZIP extraction completed")
 
-        # Step 3: Scan for folders to process
-        scanner = FolderScanner()
-        folders = scanner.get_folders_to_process(
-            config.paths.base_dir,
-            [config.paths.input_folder]
-        )
-
-        if not folders:
-            console.print_error("No folders found to process!")
-            logger.error("No valid folders found")
+        # Step 3: Check if input folder exists and has files
+        if not config.paths.input_path.exists():
+            console.print_error(f"Input folder does not exist: {config.paths.input_path}")
+            console.print_info(f"Please create the folder and add your CSV files there")
+            logger.error(f"Input folder not found: {config.paths.input_path}")
             return
 
-        console.print_info(f"Found {len(folders)} folder(s) to process")
+        folders = [config.paths.input_path]
+        console.print_info(f"Processing folder: {config.paths.input_path}")
         progress.step_completed("Folder scanning completed")
 
         # Step 4: Read CSV files

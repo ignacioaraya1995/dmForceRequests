@@ -71,3 +71,9 @@ Files/*.zip
 
 # OS
 Thumbs.db
+
+# Customer data (keep structure, ignore data files)
+customers/*/input/raw_data/*.csv
+customers/*/input/suppressed/*.csv
+customers/*/output/*
+!customers/*/output/.gitkeep

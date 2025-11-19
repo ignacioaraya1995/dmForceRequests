@@ -127,15 +127,11 @@ class PathConfig:
     client_name: str = ""
 
     # Data folder structure
-    data_folder: str = "customers"  # Changed from "data" to match actual structure
+    data_folder: str = "customers"
     input_folder_name: str = "input"
     raw_data_folder_name: str = "raw_data"  # Subfolder under input
-    suppress_folder_name: str = "suppressed"  # Changed from "suppress", subfolder under input
+    suppress_folder_name: str = "suppressed"  # Subfolder under input
     output_folder_name: str = "output"
-
-    # Legacy folders (backwards compatibility - deprecated)
-    legacy_input_folder: str = "Files"
-    dupes_folder: str = "Dupes"
 
     # Reference data
     fips_filename: str = "FIPs.xlsx"
@@ -159,37 +155,23 @@ class PathConfig:
     @property
     def input_path(self) -> Path:
         """Get full input folder path (raw_data subfolder)."""
-        if self.client_name:
-            # New structure: customers/client_name/input/raw_data
-            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.raw_data_folder_name
-        else:
-            # Legacy structure: Files
-            return self.base_dir / self.legacy_input_folder
+        if not self.client_name:
+            raise ValueError("Client name must be set before accessing input path")
+        return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.raw_data_folder_name
 
     @property
     def suppress_path(self) -> Path:
         """Get full suppress folder path (suppressed subfolder under input)."""
-        if self.client_name:
-            # New structure: customers/client_name/input/suppressed
-            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.suppress_folder_name
-        else:
-            # Legacy structure: Dupes
-            return self.base_dir / self.dupes_folder
-
-    @property
-    def dupes_path(self) -> Path:
-        """Get full dupes folder path (legacy)."""
-        return self.base_dir / self.dupes_folder
+        if not self.client_name:
+            raise ValueError("Client name must be set before accessing suppress path")
+        return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.suppress_folder_name
 
     @property
     def output_path(self) -> Path:
         """Get full output folder path."""
-        if self.client_name:
-            # New structure: customers/client_name/output
-            return self.base_dir / self.data_folder / self.client_name / self.output_folder_name
-        else:
-            # Legacy structure: Output File
-            return self.base_dir / "Output File"
+        if not self.client_name:
+            raise ValueError("Client name must be set before accessing output path")
+        return self.base_dir / self.data_folder / self.client_name / self.output_folder_name
 
     @property
     def fips_file_path(self) -> Path:

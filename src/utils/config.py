@@ -127,9 +127,10 @@ class PathConfig:
     client_name: str = ""
 
     # Data folder structure
-    data_folder: str = "data"
+    data_folder: str = "customers"  # Changed from "data" to match actual structure
     input_folder_name: str = "input"
-    suppress_folder_name: str = "suppress"
+    raw_data_folder_name: str = "raw_data"  # Subfolder under input
+    suppress_folder_name: str = "suppressed"  # Changed from "suppress", subfolder under input
     output_folder_name: str = "output"
 
     # Legacy folders (backwards compatibility - deprecated)
@@ -157,20 +158,20 @@ class PathConfig:
 
     @property
     def input_path(self) -> Path:
-        """Get full input folder path."""
+        """Get full input folder path (raw_data subfolder)."""
         if self.client_name:
-            # New structure: data/client_name/input
-            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name
+            # New structure: customers/client_name/input/raw_data
+            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.raw_data_folder_name
         else:
             # Legacy structure: Files
             return self.base_dir / self.legacy_input_folder
 
     @property
     def suppress_path(self) -> Path:
-        """Get full suppress folder path."""
+        """Get full suppress folder path (suppressed subfolder under input)."""
         if self.client_name:
-            # New structure: data/client_name/suppress
-            return self.base_dir / self.data_folder / self.client_name / self.suppress_folder_name
+            # New structure: customers/client_name/input/suppressed
+            return self.base_dir / self.data_folder / self.client_name / self.input_folder_name / self.suppress_folder_name
         else:
             # Legacy structure: Dupes
             return self.base_dir / self.dupes_folder
@@ -184,7 +185,7 @@ class PathConfig:
     def output_path(self) -> Path:
         """Get full output folder path."""
         if self.client_name:
-            # New structure: data/client_name/output
+            # New structure: customers/client_name/output
             return self.base_dir / self.data_folder / self.client_name / self.output_folder_name
         else:
             # Legacy structure: Output File

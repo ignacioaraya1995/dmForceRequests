@@ -17,13 +17,13 @@ dmForceRequests/
 ├── data/
 │   ├── input/               # Input data organized by client
 │   │   ├── ClientA/
-│   │   │   ├── request form/    # Excel/CSV files
-│   │   │   ├── suppressed file/ # Excel/CSV files
-│   │   │   └── raw data/        # Excel/CSV files
+│   │   │   ├── requestForm/     # Excel/CSV files
+│   │   │   ├── suppressFile/    # Excel/CSV files
+│   │   │   └── rawData/         # Excel/CSV files
 │   │   └── ClientB/
-│   │       ├── request form/
-│   │       ├── suppressed file/
-│   │       └── raw data/
+│   │       ├── requestForm/
+│   │       ├── suppressFile/
+│   │       └── rawData/
 │   └── output/              # Analysis results
 │       ├── ClientA/
 │       └── ClientB/
@@ -54,9 +54,9 @@ dmForceRequests/
 2. **Prepare your data**
    - Place client folders in `data/input/`
    - Each client folder must contain three subfolders:
-     - `request form/`
-     - `suppressed file/`
-     - `raw data/`
+     - `requestForm/`
+     - `suppressFile/`
+     - `rawData/`
    - Each subfolder should contain at least one CSV or Excel file
 
 3. **Build the Docker image**
@@ -149,11 +149,11 @@ PROCESSING 1 CLIENT(S)
 ============================================================
 Validating client: Acme Corp
 ============================================================
-✅ Folder 'request form' - Found 1 file(s):
+✅ Folder 'requestForm' - Found 1 file(s):
    📄 request_form_2024.xlsx
-✅ Folder 'suppressed file' - Found 1 file(s):
+✅ Folder 'suppressFile' - Found 1 file(s):
    📄 suppressed_data.csv
-✅ Folder 'raw data' - Found 2 file(s):
+✅ Folder 'rawData' - Found 2 file(s):
    📄 raw_data_jan.xlsx
    📄 raw_data_feb.xlsx
 

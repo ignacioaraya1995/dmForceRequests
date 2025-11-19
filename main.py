@@ -15,7 +15,7 @@ class ClientDataAnalyzer:
     """Handles client data discovery, validation, and analysis."""
 
     # Required folder structure for each client
-    REQUIRED_FOLDERS = ["request form", "suppressed file", "raw data"]
+    REQUIRED_FOLDERS = ["requestForm", "suppressFile", "rawData"]
 
     # Supported file extensions
     VALID_EXTENSIONS = ['.csv', '.xlsx', '.xls']

@@ -293,6 +293,71 @@ class DataProcessor:
 
         return df_cleaned
 
+    def filter_empty_zip_codes(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Filter out rows with empty, unknown, or invalid ZIP codes.
+
+        Removes rows where ZIP code is:
+        - Empty, null, or NaN
+        - "Unknown", "N/A", or similar placeholder values
+        - "0", "00000", or similar zero patterns
+
+        Args:
+            df: Input DataFrame
+
+        Returns:
+            DataFrame with valid ZIP codes only
+        """
+        # Try different possible ZIP code column names
+        zip_col_candidates = ['SitusZIP5', 'PROPERTY ZIP', 'PropertyZIP', 'ZIP']
+        zip_col = None
+
+        for col in zip_col_candidates:
+            if col in df.columns:
+                zip_col = col
+                break
+
+        if not zip_col:
+            logger.warning("No ZIP code column found, skipping ZIP code filtering")
+            return df
+
+        initial_rows = len(df)
+
+        # Convert to string for pattern matching
+        zip_str = df[zip_col].fillna('').astype(str).str.strip().str.lower()
+
+        # Define invalid patterns
+        invalid_patterns = [
+            '',  # Empty
+            'unknown',
+            'n/a',
+            'na',
+            'null',
+            'none',
+            '0',
+            '00000',
+            '00',
+            '000',
+            '0000',
+        ]
+
+        # Create mask for valid ZIP codes (NOT in invalid list)
+        valid_mask = ~zip_str.isin(invalid_patterns)
+
+        # Also filter out pure numeric zeros (in case of variations like 0.0)
+        numeric_zip = pd.to_numeric(df[zip_col], errors='coerce')
+        valid_mask = valid_mask & ((numeric_zip.isna()) | (numeric_zip > 0))
+
+        df_filtered = df[valid_mask].copy()
+        rows_removed = initial_rows - len(df_filtered)
+
+        logger.info(
+            f"ZIP code filtering: Removed {rows_removed:,} rows with empty/unknown/zero ZIP codes"
+        )
+        logger.info(f"Remaining rows: {len(df_filtered):,}")
+
+        return df_filtered
+
     def apply_title_case(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply title case formatting to text columns.

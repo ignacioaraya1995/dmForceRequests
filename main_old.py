@@ -118,6 +118,10 @@ def main():
         df = processor.clean_addresses(df)
         console.print_info(f"Removed rows with incomplete addresses: {len(df):,} rows remaining")
 
+        # Filter out empty/unknown ZIP codes EARLY for efficiency
+        df = processor.filter_empty_zip_codes(df)
+        console.print_info(f"Filtered invalid ZIP codes: {len(df):,} rows remaining")
+
         df = processor.calculate_distress_counter(df)
         console.print_info("Calculated distress scores")
 
@@ -153,19 +157,22 @@ def main():
         console.print_info("Applied final formatting")
         progress.step_completed("Final cleanup completed")
 
-        # Step 10: Remove duplicates from previous files (optional)
-        console.print_section("Duplicate Removal from Previous Files")
-        if console.confirm_action("Do you want to remove properties listed in previous files (from 'Dupes' folder)?"):
-            dupe_manager = DuplicateManager()
-            previous_addresses = dupe_manager.load_previous_addresses(config.paths.dupes_path)
+        # Step 10: Apply suppression from previous campaigns (OPTIMIZED - happens at END)
+        console.print_section("Suppression from Previous Campaigns")
+        console.print_info("Checking for suppression records in 'suppressed' folder...")
 
-            if previous_addresses:
-                df, removed_count = processor.remove_previous_addresses(df, previous_addresses)
-                console.print_success(f"Removed {removed_count:,} duplicate properties")
-            else:
-                console.print_warning("No previous addresses found to compare against")
+        dupe_manager = DuplicateManager()
+        suppression_records = dupe_manager.load_suppression_records(config.paths.suppress_path)
 
-        progress.step_completed("Duplicate removal completed")
+        if suppression_records:
+            console.print_info(f"Found {len(suppression_records):,} suppression records")
+            console.print_info("Applying suppression (optimized - happens after all filtering)...")
+            df, removed_count = processor.apply_suppression(df, suppression_records)
+            console.print_success(f"Removed {removed_count:,} properties from previous campaigns")
+        else:
+            console.print_warning("No suppression records found")
+
+        progress.step_completed("Suppression completed")
 
         # Validate final data
         if not validator.validate_dataframe(df, "Final DataFrame"):

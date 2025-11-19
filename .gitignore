@@ -51,9 +51,23 @@ data/output/*/
 # Docker
 *.log
 
+# Logs directory
+logs/
+*.log
+
 # Environment variables
 .env
 .env.local
+
+# Project specific
+Output File/*.xlsx
+Dupes/*.csv
+Dupes/*.xlsx
+Files/*.csv
+Files/*.zip
+
+# Backup files
+*_original.py
 
 # OS
 Thumbs.db

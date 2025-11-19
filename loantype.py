@@ -1,396 +1,207 @@
-import os
-import pandas as pd
-from glob import glob
+#!/usr/bin/env python3
+"""
+Herramienta de Consolidación de Datos de Propiedades Inmobiliarias
+Punto de entrada principal para la versión en español.
 
-# Definir las columnas basadas en las categorías proporcionadas
-distress_columns = [
-    "30-60-Days_Distress",
-    "Absentee",
-    "Bankruptcy_Distress",
-    "Debt-Collection_Distress",
-    "Divorce_Distress",
-    "Downsizing_Distress",
-    "Estate_Distress",
-    "Eviction_Distress",
-    "Failed_Listing_Distress",
-    "highEquity",
-    "Inter_Family_Distress",
-    "Judgment_Distress",
-    "Lien_City_County_Distress",
-    "Lien_HOA_Distress",
-    "Lien_Mechanical_Distress",
-    "Lien_Other_Distress",
-    "Lien_Utility_Distress",
-    "Low_income_Distress",
-    "PoorCondition_Distress",
-    "Preforeclosure_Distress",
-    "Probate_Distress",
-    "Prop_Vacant_Flag",
-    "Senior_Distress",
-    "Tax_Delinquent_Distress",
-    "Violation_Distress"
-]
+Esta herramienta consolida datos de propiedades de múltiples archivos CSV, aplica
+filtrado basado en indicadores de dificultad y genera informes Excel formateados
+para profesionales de bienes raíces.
+"""
 
-unique1_columns = ["MailingFullStreetAddress", "MailingZIP5"]
-unique2_columns = ["SitusFullStreetAddress", "SitusZIP5"]
-name_column = ["FIPS"]
-key_variables = [
-    "LotSizeSqFt",
-    "LTV",
-    "MailingCity",
-    "MailingState",
-    "MailingStreet",
-    "Owner_Type",
-    "Owner1FirstName",
-    "Owner1LastName",
-    "OwnerNAME1FULL",
-    "PropertyID",
-    "saleDate",
-    "SumLivingAreaSqFt",
-    "totalValue",
-    "Use_Type",
-    "YearBuilt",
-    "SitusCity",
-    "SitusState",
-    "Bedrooms",
-    #"ConcurrentMtg1LoanType",
-    "IsListedFlag"     
-    #"PrevSalesPrice" 
-]
+import time
+from pathlib import Path
 
-columns_to_keep = distress_columns + unique1_columns + unique2_columns + name_column + key_variables
-percentage_to_retain = 0.7
+from src.utils.logger import get_logger
+from src.utils.config import get_default_config
+from src.data_processing.processor import DataProcessor, DataValidator
+from src.file_operations.file_handler import (
+    FileReader, DuplicateManager, ZipExtractor, FolderScanner
+)
+from src.file_operations.excel_formatter import ExcelFormatter, ReportGenerator
+from src.ui.console_interface import ConsoleInterface, DataFilter, ProgressTracker
 
-if not 0 < percentage_to_retain <= 1:
-    raise ValueError("El porcentaje a retener debe ser un número entre 0 y 1.")
 
-output_dir = os.path.join(os.getcwd(), "Output File")
-os.makedirs(output_dir, exist_ok=True)
+def main():
+    """Pipeline principal de procesamiento."""
+    start_time = time.time()
 
-current_dir = os.getcwd()
-folders_to_process = ['Files']
-folders = [f for f in folders_to_process if os.path.isdir(os.path.join(current_dir, f))]
+    # Inicializar configuración
+    config = get_default_config(language='es', log_level='INFO')
+    config.ensure_setup()
 
-total_folders = len(folders)
-print(f"Se encontraron {total_folders} carpetas para procesar.\n")
+    # Inicializar logger
+    logger = get_logger(__name__, log_level=config.log_level)
+    logger.info("=" * 60)
+    logger.info("Herramienta de Procesamiento de Datos Inmobiliarios - INICIADO")
+    logger.info("=" * 60)
 
-# Lista para almacenar todos los DataFrames consolidados
-all_dfs = []
+    # Inicializar componentes
+    console = ConsoleInterface(config.language)
+    progress = ProgressTracker()
+    progress.set_total_steps(10)
 
-for idx, folder in enumerate(folders, 1):
-    print(f"Procesando carpeta {idx}/{total_folders}: '{folder}'")
-    folder_path = os.path.join(current_dir, folder)
+    # Mostrar mensaje de bienvenida
+    console.print_header("Herramienta de Consolidación de Datos Inmobiliarios")
+    console.print_info("Iniciando proceso de consolidación y limpieza de datos...")
 
-    csv_files = glob(os.path.join(folder_path, '*.csv'))
-    if not csv_files:
-        print(f"No se encontraron archivos CSV en '{folder}'. Saltando.\n")
-        continue
-
-    print(f"  Se encontraron {len(csv_files)} archivo(s) CSV en '{folder}'. Leyendo y consolidando...")
-
-    dfs = []
-    for file in csv_files:
-        try:
-            df = pd.read_csv(file, low_memory=False)
-            dfs.append(df)
-        except Exception as e:
-            print(f"    Error al leer '{file}': {e}")
-    if not dfs:
-        print(f"  No se pudieron leer dataframes en '{folder}'. Saltando.\n")
-        continue
-
-    combined_df = pd.concat(dfs, ignore_index=True)
-    print(f"  Consolidado {len(dfs)} archivo(s) en un dataframe con {combined_df.shape[0]} filas.")
-
-    existing_columns = [col for col in columns_to_keep if col in combined_df.columns]
-    combined_df = combined_df[existing_columns]
-    print(f"  Se retuvieron {len(existing_columns)} columnas según lo especificado.")
-
-    # Eliminar filas con celdas vacías en las columnas especificadas
-    columns_to_check = ["MailingFullStreetAddress", "MailingZIP5", "SitusFullStreetAddress", "SitusZIP5"]
-    combined_df.dropna(subset=columns_to_check, how='any', inplace=True)
-    print(f"  Se eliminaron filas con celdas vacías en las columnas: {columns_to_check}.")
-
-    distress_existing = [col for col in distress_columns if col in combined_df.columns]
-    distress_df = combined_df[distress_existing].fillna(0)
-
-    distress_counter = distress_df.apply(lambda row: row.astype(bool).sum(), axis=1)
-    combined_df['DistressCounter'] = distress_counter
-    print("  Se creó la variable 'DistressCounter'.")
-
-    unique1_existing = [col for col in unique1_columns if col in combined_df.columns]
-    if unique1_existing:
-        combined_df.drop_duplicates(subset=unique1_existing, inplace=True)
-
-    unique2_existing = [col for col in unique2_columns if col in combined_df.columns]
-    if unique2_existing:
-        combined_df.drop_duplicates(subset=unique2_existing, inplace=True)
-
-    combined_df.sort_values(by='DistressCounter', ascending=False, inplace=True)
-
-    total_rows = combined_df.shape[0]
-    cutoff_index = max(1, int(total_rows * percentage_to_retain))
-    combined_df = combined_df.iloc[:cutoff_index]
-
-    all_dfs.append(combined_df)
-
-# Combinar todos los DataFrames
-final_df = pd.concat(all_dfs, ignore_index=True)
-
-# Definir el nuevo orden de las columnas
-new_column_order = [
-    "FIPS",
-    "PropertyID",
-    "SitusFullStreetAddress",
-    "SitusCity",
-    "SitusState",
-    "SitusZIP5",
-    "MailingFullStreetAddress",
-    "MailingCity",
-    "MailingState",
-    "MailingZIP5",
-    "OwnerNAME1FULL",
-    "Owner1FirstName",
-    "Owner1LastName",
-    "Owner_Type",
-    "LotSizeSqFt",
-    "LTV",
-    "saleDate",
-    "SumLivingAreaSqFt",
-    "totalValue",
-    "Use_Type",
-    "YearBuilt",
-    "Bedrooms",
-    "DistressCounter",
-    #"ConcurrentMtg1LoanType",     //Enable if the client needs to add the LoanType
-    "IsListedFlag"     # //Enable is the client needs properties on market 
-    #"PrevSalesPrice"    #//Enable is client needs last sale history
-]
-
-final_df = final_df[new_column_order]
-
-# Renombrar las columnas
-rename_columns = {
-    "SitusFullStreetAddress": "PROPERTY ADDRESS",
-    "SitusCity": "PROPERTY CITY",
-    "SitusState": "PROPERTY STATE",
-    "SitusZIP5": "PROPERTY ZIP",
-    "MailingFullStreetAddress": "MAILING ADDRESS",
-    "MailingCity": "MAILING CITY",
-    "MailingState": "MAILING STATE",
-    "MailingZIP5": "MAILING ZIP",
-    "OwnerNAME1FULL": "OWNER FULL NAME",
-    "Owner1FirstName": "OWNER FIRST NAME",
-    "Owner1LastName": "OWNER LAST NAME",
-    "Owner_Type": "OWNER TYPE",
-    "Use_Type": "PROPERTY TYPE"
-}
-
-final_df.rename(columns=rename_columns, inplace=True)
-
-# Función para capitalizar texto
-def capitalize_text(series):
-    if pd.api.types.is_string_dtype(series):
-        return series.str.title()
-    return series
-
-# Procesar FIPS County
-fips_file_path = os.path.join(current_dir, "FIPs.xlsx")
-if os.path.exists(fips_file_path):
     try:
-        fips_df = pd.read_excel(fips_file_path)
-        if all(col in fips_df.columns for col in ['FIPS Code', 'County']):
-            final_df = pd.merge(
-                final_df,
-                fips_df[['FIPS Code', 'County']],
-                left_on='FIPS',
-                right_on='FIPS Code',
-                how='left'
-            )
-            final_df.drop('FIPS Code', axis=1, inplace=True)
-            final_df.rename(columns={'County': 'COUNTY'}, inplace=True)
-            
-            cols = final_df.columns.tolist()
-            prop_state_idx = cols.index('PROPERTY STATE')
-            cols.insert(prop_state_idx + 1, cols.pop(cols.index('COUNTY')))
-            final_df = final_df[cols]
-            
-            print("  Se agregó la columna COUNTY basada en los códigos FIPS.")
-    except Exception as e:
-        print(f"  Error al procesar FIPs.xlsx: {e}")
+        # Paso 1: Obtener nombre del cliente
+        client_name = console.get_client_name()
+        console.print_success(f"Cliente seleccionado: {client_name}")
+        progress.step_completed("Nombre del cliente recopilado")
 
-# Convertir headers a mayúsculas
-final_df.columns = final_df.columns.str.upper()
+        # Paso 2: Extraer archivos ZIP si están presentes
+        logger.info("Verificando archivos ZIP para extraer...")
+        zip_extractor = ZipExtractor()
+        extracted_count = zip_extractor.extract_zip_files(config.paths.input_path)
+        if extracted_count > 0:
+            console.print_success(f"Extraídos {extracted_count} archivo(s) ZIP")
+        progress.step_completed("Extracción de ZIP completada")
 
-# Filtro interactivo para OWNER TYPE
-filter_owner = input("\n¿Desea filtrar por OWNER TYPE? (si/no): ").strip().lower()
-if filter_owner == 'si':
-    unique_owners = final_df['OWNER TYPE'].dropna().unique()
-    print("\nOWNER TYPE disponibles:", ', '.join(map(str, unique_owners)))
-    
-    desired_owners = input("Ingrese los OWNER TYPE deseados (separados por coma): ").strip().lower()
-    desired_list = [t.strip() for t in desired_owners.split(',') if t.strip()]
-    
-    if desired_list:
-        initial_count = len(final_df)
-        final_df = final_df[final_df['OWNER TYPE'].str.lower().isin(desired_list)]
-        removed = initial_count - len(final_df)
-        print(f"\nSe eliminaron {removed} filas. Quedan {len(final_df)} filas.")
+        # Paso 3: Escanear carpetas para procesar
+        scanner = FolderScanner()
+        folders = scanner.get_folders_to_process(
+            config.paths.base_dir,
+            [config.paths.input_folder]
+        )
 
-# Filtro interactivo para PROPERTY TYPE
-filter_property = input("\n¿Desea filtrar por PROPERTY TYPE? (si/no): ").strip().lower()
-if filter_property == 'si':
-    unique_props = final_df['PROPERTY TYPE'].dropna().unique()
-    print("\nPROPERTY TYPE disponibles:", ', '.join(map(str, unique_props)))
-    
-    desired_props = input("Ingrese los PROPERTY TYPE deseados (separados por coma): ").strip().lower()
-    desired_list = [t.strip() for t in desired_props.split(',') if t.strip()]
-    
-    if desired_list:
-        initial_count = len(final_df)
-        final_df = final_df[final_df['PROPERTY TYPE'].str.lower().isin(desired_list)]
-        removed = initial_count - len(final_df)
-        print(f"\nSe eliminaron {removed} filas. Quedan {len(final_df)} filas.")
+        if not folders:
+            console.print_error("¡No se encontraron carpetas para procesar!")
+            logger.error("No se encontraron carpetas válidas")
+            return
 
-# Filtro interactivo para TOTALVALUE
-filter_value = input("\n¿Desea filtrar por TOTALVALUE? (si/no): ").strip().lower()
-if filter_value == 'si':
-    current_min = final_df['TOTALVALUE'].min()
-    current_max = final_df['TOTALVALUE'].max()
-    print(f"\nRango actual: Mínimo = {current_min}, Máximo = {current_max}")
-    
-    try:
-        min_val = float(input("Ingrese el valor mínimo: "))
-        max_val = float(input("Ingrese el valor máximo: "))
-        
-        if min_val > max_val:
-            print("\n¡Advertencia! El mínimo es mayor que el máximo. Se intercambiarán.")
-            min_val, max_val = max_val, min_val
-        
-        initial_count = len(final_df)
-        final_df = final_df[(final_df['TOTALVALUE'] >= min_val) & (final_df['TOTALVALUE'] <= max_val)]
-        removed = initial_count - len(final_df)
-        
-        print(f"\nSe eliminaron {removed} filas. Quedan {len(final_df)} filas.")
-        print(f"Nuevo rango: Mínimo = {final_df['TOTALVALUE'].min()}, Máximo = {final_df['TOTALVALUE'].max()}")
-    except ValueError:
-        print("\nError: Ingrese valores numéricos válidos.")
+        console.print_info(f"Se encontraron {len(folders)} carpeta(s) para procesar")
+        progress.step_completed("Escaneo de carpetas completado")
 
-# Filtro para LTV
-if 'LTV' in final_df.columns:
-    initial_count = len(final_df)
-    ltv_str = final_df['LTV'].astype(str)
-    mask = (
-        ltv_str.str.lower().str.contains('unknown', na=False) | 
-        (pd.to_numeric(final_df['LTV'], errors='coerce') <= 999)
-    )
-    final_df = final_df[mask | final_df['LTV'].isna()]
-    removed = initial_count - len(final_df)
-    print(f"\nSe eliminaron {removed} filas con LTV > 999. Quedan {len(final_df)} filas.")
-    final_df['LTV'] = pd.to_numeric(final_df['LTV'], errors='coerce')
+        # Paso 4: Leer archivos CSV
+        console.print_section("Leyendo Archivos CSV")
+        file_reader = FileReader(config.processing)
+        all_dataframes = []
 
-# Aplicar formato de texto
-text_cols = ['OWNER TYPE', 'PROPERTY TYPE', 'COUNTY']
-for col in text_cols:
-    if col in final_df.columns:
-        final_df[col] = capitalize_text(final_df[col])
+        for folder in folders:
+            logger.info(f"Procesando carpeta: {folder.name}")
+            console.print_info(f"Procesando carpeta: {folder.name}")
 
-# Guardar archivo final
-output_file = os.path.join(output_dir, "Consolidated Files.xlsx")
-final_df.to_excel(output_file, index=False)
-print(f"\nArchivo guardado en: {output_file}")
-print("Procesamiento completado.")
-
-# [Todo el código anterior permanece igual hasta antes del análisis final]
-
-# Consultar sobre eliminación de duplicados de archivos previos
-remove_duplicates = input("\n¿Desea eliminar propiedades listadas en archivos previos (Dupes)? (si/no): ").strip().lower()
-
-if remove_duplicates == 'si':
-    dupes_folder = os.path.join(current_dir, "Dupes")
-    if os.path.exists(dupes_folder):
-        # Leer todos los archivos en la carpeta Dupes
-        dupes_files = glob(os.path.join(dupes_folder, '*.csv')) + glob(os.path.join(dupes_folder, '*.xlsx'))
-        
-        if dupes_files:
-            print(f"\nLeyendo {len(dupes_files)} archivos en la carpeta Dupes...")
-            dupes_addresses = set()
-            
-            for file in dupes_files:
-                try:
-                    if file.endswith('.csv'):
-                        df = pd.read_csv(file)
-                    else:  # .xlsx
-                        df = pd.read_excel(file)
-                    
-                    if 'PROPERTY ADDRESS' in df.columns:
-                        dupes_addresses.update(df['PROPERTY ADDRESS'].dropna().astype(str).str.strip().str.lower())
-                    
-                except Exception as e:
-                    print(f"  Error al procesar {os.path.basename(file)}: {e}")
-            
-            if dupes_addresses:
-                initial_count = len(final_df)
-                # Crear máscara para mantener solo propiedades NO encontradas en dupes
-                mask = ~final_df['PROPERTY ADDRESS'].str.strip().str.lower().isin(dupes_addresses)
-                final_df = final_df[mask]
-                removed_count = initial_count - len(final_df)
-                
-                print(f"\nSe eliminaron {removed_count} propiedades que estaban listadas en archivos previos.")
-                print(f"Quedan {len(final_df)} propiedades después de este filtro.")
+            dfs = file_reader.read_csv_files_from_folder(folder)
+            if dfs:
+                all_dataframes.extend(dfs)
+                console.print_success(f"Se leyeron {len(dfs)} archivo(s) CSV de {folder.name}")
             else:
-                print("\nNo se encontraron direcciones en los archivos Dupes para comparar.")
-        else:
-            print("\nNo se encontraron archivos en la carpeta Dupes.")
-    else:
-        print("\nNo se encontró la carpeta Dupes.")
+                console.print_warning(f"No se leyeron archivos CSV de {folder.name}")
+
+        if not all_dataframes:
+            console.print_error("¡No se leyeron datos de los archivos CSV!")
+            logger.error("No se cargaron dataframes")
+            return
+
+        progress.step_completed("Archivos CSV leídos")
+
+        # Paso 5: Inicializar procesador de datos y consolidar
+        console.print_section("Procesando Datos")
+        processor = DataProcessor(config.columns, config.processing)
+        validator = DataValidator()
+
+        logger.info("Consolidando dataframes...")
+        df = processor.consolidate_dataframes(all_dataframes)
+        console.print_info(f"Se consolidaron {len(df):,} filas totales")
+        progress.step_completed("Datos consolidados")
+
+        # Paso 6: Limpieza y transformación de datos
+        logger.info("Iniciando limpieza y transformación de datos...")
+
+        df = processor.select_relevant_columns(df)
+        console.print_info(f"Se seleccionaron {len(df.columns)} columnas relevantes")
+
+        df = processor.clean_addresses(df)
+        console.print_info(f"Se eliminaron filas con direcciones incompletas: {len(df):,} filas restantes")
+
+        df = processor.calculate_distress_counter(df)
+        console.print_info("Se calcularon puntuaciones de dificultad")
+
+        df = processor.remove_duplicates(df)
+        console.print_info(f"Se eliminaron duplicados: {len(df):,} filas restantes")
+
+        df = processor.filter_top_by_distress(df)
+        console.print_info(f"Se filtró el top {config.processing.percentage_to_retain:.0%}: {len(df):,} filas restantes")
+
+        progress.step_completed("Limpieza de datos completada")
+
+        # Paso 7: Reordenar y renombrar columnas
+        logger.info("Reordenando y renombrando columnas...")
+        df = processor.reorder_columns(df)
+        df = processor.rename_columns(df)
+
+        # Fusionar datos FIPS
+        df = processor.merge_fips_data(df, config.paths.fips_file_path)
+
+        df = processor.uppercase_columns(df)
+        progress.step_completed("Formateo de columnas completado")
+
+        # Paso 8: Filtrado interactivo
+        console.print_section("Filtrado Interactivo")
+        data_filter = DataFilter()
+        df = data_filter.apply_interactive_filters(df)
+        progress.step_completed("Filtrado interactivo completado")
+
+        # Paso 9: Limpieza final
+        console.print_section("Limpieza Final")
+        df = processor.clean_ltv_values(df)
+        df = processor.apply_title_case(df)
+        console.print_info("Se aplicó formato final")
+        progress.step_completed("Limpieza final completada")
+
+        # Paso 10: Eliminar duplicados de archivos anteriores (opcional)
+        console.print_section("Eliminación de Duplicados de Archivos Anteriores")
+        if console.confirm_action("¿Desea eliminar propiedades listadas en archivos anteriores (carpeta 'Dupes')?"):
+            dupe_manager = DuplicateManager()
+            previous_addresses = dupe_manager.load_previous_addresses(config.paths.dupes_path)
+
+            if previous_addresses:
+                df, removed_count = processor.remove_previous_addresses(df, previous_addresses)
+                console.print_success(f"Se eliminaron {removed_count:,} propiedades duplicadas")
+            else:
+                console.print_warning("No se encontraron direcciones anteriores para comparar")
+
+        progress.step_completed("Eliminación de duplicados completada")
+
+        # Validar datos finales
+        if not validator.validate_dataframe(df, "DataFrame Final"):
+            console.print_error("¡Validación de datos finales falló!")
+            return
+
+        # Paso 11: Guardar en Excel
+        console.print_section("Guardando Resultados")
+        excel_formatter = ExcelFormatter(config.excel, config.columns)
+        output_file = excel_formatter.save_formatted_excel(
+            df,
+            config.paths.output_path,
+            client_name
+        )
+        console.print_success(f"Archivo Excel guardado: {output_file.name}")
+        logger.info(f"Archivo de salida guardado: {output_file}")
+
+        # Paso 12: Generar informe resumen
+        console.print_section("Resumen Final")
+        report_generator = ReportGenerator()
+        report_generator.print_summary_report(df)
+
+        # Imprimir finalización
+        elapsed_time = time.time() - start_time
+        progress.print_summary(len(df), elapsed_time)
+
+        console.print_success("¡Proceso completado con éxito!")
+        logger.info(f"Procesamiento completado en {elapsed_time:.2f} segundos")
+        logger.info("=" * 60)
+
+    except KeyboardInterrupt:
+        console.print_warning("\nProceso interrumpido por el usuario")
+        logger.warning("Proceso interrumpido por el usuario")
+
+    except Exception as e:
+        console.print_error(f"Ocurrió un error: {e}")
+        logger.error(f"Error fatal: {e}", exc_info=True)
+        raise
 
 
-
-
-
-# Análisis final de los datos
-print("\n****RESULTS****\n")
-
-# 1. Total de registros
-total_records = len(final_df)
-print(f"TOTAL DE REGISTROS: {total_records:,}")
-print("-" * 40)
-
-# 2. County analysis
-if 'COUNTY' in final_df.columns:
-    counties = final_df['COUNTY'].dropna().unique()
-    counties_str = ', '.join(sorted([str(c) for c in counties if pd.notna(c)]))
-    print(f"COUNTY: {counties_str}")
-else:
-    print("COUNTY: No disponible")
-print("-" * 40)
-
-# 3. Property Type analysis
-if 'PROPERTY TYPE' in final_df.columns:
-    prop_types = final_df['PROPERTY TYPE'].dropna().unique()
-    prop_types_str = ', '.join(sorted([str(p) for p in prop_types if pd.notna(p)]))
-    print(f"PROPERTY TYPE: {prop_types_str}")
-else:
-    print("PROPERTY TYPE: No disponible")
-print("-" * 40)
-
-# 4. Owner Type analysis
-if 'OWNER TYPE' in final_df.columns:
-    owner_types = final_df['OWNER TYPE'].dropna().unique()
-    owner_types_str = ', '.join(sorted([str(o) for o in owner_types if pd.notna(o)]))
-    print(f"OWNER TYPE: {owner_types_str}")
-else:
-    print("OWNER TYPE: No disponible")
-print("-" * 40)
-
-# 5. TotalValue range
-if 'TOTALVALUE' in final_df.columns:
-    min_value = final_df['TOTALVALUE'].min()
-    max_value = final_df['TOTALVALUE'].max()
-    print(f"TOTALVALUE RANGE: Min {min_value:,.2f} - Max {max_value:,.2f}")
-else:
-    print("TOTALVALUE: No disponible")
-print("-" * 40)
-
-print("\nProcesamiento completado.")
+if __name__ == "__main__":
+    main()

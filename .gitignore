@@ -41,12 +41,15 @@ env/
 .ipynb_checkpoints
 
 # Data files (keep structure, ignore actual data)
-data/input/*/
-data/output/*/
+# New customer-based structure: data/{customer_name}/input/ and data/{customer_name}/output/
+data/*/input/*.csv
+data/*/input/*.xlsx
+data/*/output/*.csv
+data/*/output/*.xlsx
 
-# Keep directory structure
-!data/input/.gitkeep
-!data/output/.gitkeep
+# Keep directory structure examples
+!data/.gitkeep
+!data/*/.gitkeep
 
 # Docker
 *.log

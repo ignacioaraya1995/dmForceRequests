@@ -16,7 +16,7 @@ class MainMenu:
     """Main menu interface for data processing operations."""
 
     def __init__(self):
-        self.customers_dir = Path("customers")
+        self.customers_dir = Path("data")
         self.customers_dir.mkdir(exist_ok=True)
 
     def print_header(self, title):
@@ -52,7 +52,7 @@ class MainMenu:
         for item in self.customers_dir.iterdir():
             if item.is_dir() and not item.name.startswith('.') and item.name != 'README.md':
                 # Check if it has the required structure
-                input_dir = item / "input" / "raw_data"
+                input_dir = item / "input"
                 output_dir = item / "output"
 
                 if input_dir.exists() or output_dir.exists():
@@ -66,14 +66,14 @@ class MainMenu:
 
         if not customers:
             self.print_error("No customer folders found!")
-            self.print_info("Please create a customer folder in the 'customers/' directory.")
+            self.print_info("Please create a customer folder in the 'data/' directory.")
             self.print_info("Required structure:")
-            print("  customers/")
+            print("  data/")
             print("    └── customer_name/")
             print("        ├── input/")
-            print("        │   ├── raw_data/      # CSV files")
-            print("        │   └── suppressed/    # Suppression files")
-            print("        └── output/            # Generated files")
+            print("        │   ├── {FIPS}.csv          # CSV data files")
+            print("        │   └── suppression.csv     # Suppression file")
+            print("        └── output/                 # Generated files")
             return None
 
         self.print_header("SELECT CUSTOMER")
@@ -81,10 +81,12 @@ class MainMenu:
         print("Available customers:\n")
         for i, customer in enumerate(customers, 1):
             customer_path = self.customers_dir / customer
-            input_files = list((customer_path / "input" / "raw_data").glob("*.csv")) if (customer_path / "input" / "raw_data").exists() else []
+            input_files = list((customer_path / "input").glob("*.csv")) if (customer_path / "input").exists() else []
+            # Exclude suppression.csv from count
+            input_files = [f for f in input_files if f.name != "suppression.csv"]
             print(f"  {Fore.CYAN}{i}.{Style.RESET_ALL} {customer}")
             if input_files:
-                print(f"     └─ {len(input_files)} CSV file(s) in raw_data")
+                print(f"     └─ {len(input_files)} CSV file(s) in input/")
             else:
                 print(f"     └─ {Fore.YELLOW}No CSV files found{Style.RESET_ALL}")
 
@@ -132,13 +134,14 @@ class MainMenu:
 
         # Create folder structure
         try:
-            (customer_path / "input" / "raw_data").mkdir(parents=True, exist_ok=True)
-            (customer_path / "input" / "suppressed").mkdir(parents=True, exist_ok=True)
+            (customer_path / "input").mkdir(parents=True, exist_ok=True)
             (customer_path / "output").mkdir(parents=True, exist_ok=True)
 
             self.print_success(f"Created customer folder: {clean_name}")
             self.print_info(f"Location: {customer_path}")
-            self.print_info("Please add CSV files to: input/raw_data/")
+            self.print_info("Please add CSV files to: input/")
+            self.print_info("  - Data files: input/{FIPS}.csv")
+            self.print_info("  - Suppression: input/suppression.csv")
 
             return clean_name
         except Exception as e:
@@ -173,30 +176,29 @@ class MainMenu:
         self.print_header(f"CUSTOMER INFORMATION: {customer_name}")
 
         # Check input files
-        raw_data_path = customer_path / "input" / "raw_data"
-        suppressed_path = customer_path / "input" / "suppressed"
+        input_path = customer_path / "input"
         output_path = customer_path / "output"
 
         print(f"{Fore.CYAN}Input Files:{Style.RESET_ALL}")
-        if raw_data_path.exists():
-            csv_files = list(raw_data_path.glob("*.csv"))
-            print(f"\n  Raw Data ({raw_data_path}):")
-            if csv_files:
-                for csv_file in csv_files:
+        if input_path.exists():
+            csv_files = list(input_path.glob("*.csv"))
+            suppression_file = input_path / "suppression.csv"
+            data_files = [f for f in csv_files if f.name != "suppression.csv"]
+
+            print(f"\n  Data Files ({input_path}):")
+            if data_files:
+                for csv_file in data_files:
                     size_mb = csv_file.stat().st_size / (1024 * 1024)
                     print(f"    - {csv_file.name} ({size_mb:.2f} MB)")
             else:
-                print(f"    {Fore.YELLOW}No CSV files found{Style.RESET_ALL}")
+                print(f"    {Fore.YELLOW}No data CSV files found{Style.RESET_ALL}")
 
-        if suppressed_path.exists():
-            suppressed_files = list(suppressed_path.glob("*.csv"))
-            print(f"\n  Suppressed Files ({suppressed_path}):")
-            if suppressed_files:
-                for file in suppressed_files:
-                    size_mb = file.stat().st_size / (1024 * 1024)
-                    print(f"    - {file.name} ({size_mb:.2f} MB)")
+            print(f"\n  Suppression File:")
+            if suppression_file.exists():
+                size_mb = suppression_file.stat().st_size / (1024 * 1024)
+                print(f"    - {suppression_file.name} ({size_mb:.2f} MB)")
             else:
-                print(f"    {Fore.YELLOW}No suppression files found{Style.RESET_ALL}")
+                print(f"    {Fore.YELLOW}No suppression.csv found{Style.RESET_ALL}")
 
         print(f"\n{Fore.CYAN}Output Files:{Style.RESET_ALL}")
         if output_path.exists():
@@ -262,15 +264,16 @@ class MainMenu:
         from dynamic_table_generator import DynamicTableGenerator
 
         customer_name = customer_path.name
-        input_path = customer_path / "input" / "raw_data"
+        input_path = customer_path / "input"
         output_path = customer_path / "output"
 
-        # Check if input folder has CSV files
+        # Check if input folder has CSV files (excluding suppression.csv)
         csv_files = list(input_path.glob("*.csv")) if input_path.exists() else []
+        csv_files = [f for f in csv_files if f.name != "suppression.csv"]
 
         if not csv_files:
             self.print_error(f"No CSV files found in {input_path}")
-            self.print_info("Please add CSV files to the input/raw_data/ folder.")
+            self.print_info("Please add CSV files to the input/ folder.")
             input(f"\n{Fore.CYAN}Press Enter to continue...{Style.RESET_ALL}")
             return
 
@@ -293,17 +296,195 @@ class MainMenu:
 
     def run_main_pipeline(self, customer):
         """Run the main data processing pipeline."""
+        import time
+        from pathlib import Path
+
+        from src.utils.logger import get_logger
+        from src.utils.config import get_default_config
+        from src.data_processing.processor import DataProcessor, DataValidator
+        from src.file_operations.file_handler import (
+            FileReader, DuplicateManager, ZipExtractor
+        )
+        from src.file_operations.excel_formatter import ExcelFormatter, ReportGenerator
+        from src.ui.console_interface import ConsoleInterface, DataFilter, ProgressTracker
+
         self.print_info("Running main data processing pipeline...")
-        self.print_warning("This feature will use the existing main.py workflow")
         self.print_info(f"Customer: {customer}")
 
-        # Import and run the main pipeline
+        start_time = time.time()
+
+        # Initialize configuration
+        config = get_default_config(language='en', log_level='INFO')
+        config.paths.set_client_name(customer)
+        config.ensure_setup()
+
+        # Initialize logger
+        logger = get_logger(__name__, log_level=config.log_level)
+        logger.info("=" * 60)
+        logger.info(f"Real Estate Data Processing Tool - STARTED for {customer}")
+        logger.info("=" * 60)
+
+        # Initialize components
+        console = ConsoleInterface(config.language)
+        progress = ProgressTracker()
+        progress.set_total_steps(10)
+
         try:
-            import main
-            # Note: You may need to modify main.py to accept customer parameter
-            main.main()
+            self.print_success(f"Client selected: {customer}")
+            self.print_info(f"📁 Input folder: {config.paths.input_path}")
+            self.print_info(f"📁 Output folder: {config.paths.output_path}")
+
+            progress.step_completed("Client name collected")
+
+            # Step 2: Extract ZIP files if present
+            logger.info("Checking for ZIP files to extract...")
+            zip_extractor = ZipExtractor()
+            extracted_count = zip_extractor.extract_zip_files(config.paths.input_path)
+            if extracted_count > 0:
+                self.print_success(f"Extracted {extracted_count} ZIP file(s)")
+            progress.step_completed("ZIP extraction completed")
+
+            # Step 3: Check if input folder exists and has files
+            if not config.paths.input_path.exists():
+                self.print_error(f"Input folder does not exist: {config.paths.input_path}")
+                self.print_info(f"Please create the folder and add your CSV files there")
+                logger.error(f"Input folder not found: {config.paths.input_path}")
+                input(f"\n{Fore.CYAN}Press Enter to continue...{Style.RESET_ALL}")
+                return
+
+            folders = [config.paths.input_path]
+            self.print_info(f"Processing folder: {config.paths.input_path}")
+            progress.step_completed("Folder scanning completed")
+
+            # Step 4: Read CSV files
+            console.print_section("Reading CSV Files")
+            file_reader = FileReader(config.processing)
+            all_dataframes = []
+
+            for folder in folders:
+                logger.info(f"Processing folder: {folder.name}")
+                self.print_info(f"Processing folder: {folder.name}")
+
+                dfs = file_reader.read_csv_files_from_folder(folder)
+                if dfs:
+                    all_dataframes.extend(dfs)
+                    self.print_success(f"Read {len(dfs)} CSV file(s) from {folder.name}")
+                else:
+                    self.print_warning(f"No CSV files read from {folder.name}")
+
+            if not all_dataframes:
+                self.print_error("No data read from CSV files!")
+                logger.error("No dataframes loaded")
+                input(f"\n{Fore.CYAN}Press Enter to continue...{Style.RESET_ALL}")
+                return
+
+            progress.step_completed("CSV files read")
+
+            # Step 5: Initialize data processor and consolidate
+            console.print_section("Processing Data")
+            processor = DataProcessor(config.columns, config.processing)
+            validator = DataValidator()
+
+            logger.info("Consolidating dataframes...")
+            df = processor.consolidate_dataframes(all_dataframes)
+            self.print_info(f"Consolidated {len(df):,} total rows")
+            progress.step_completed("Data consolidated")
+
+            # Step 6: Data cleaning and transformation
+            logger.info("Starting data cleaning and transformation...")
+
+            df = processor.select_relevant_columns(df)
+            self.print_info(f"Selected {len(df.columns)} relevant columns")
+
+            df = processor.clean_addresses(df)
+            self.print_info(f"Removed rows with incomplete addresses: {len(df):,} rows remaining")
+
+            df = processor.calculate_distress_counter(df)
+            self.print_info("Calculated distress scores")
+
+            df = processor.remove_duplicates(df)
+            self.print_info(f"Removed duplicates: {len(df):,} rows remaining")
+
+            df = processor.filter_top_by_distress(df)
+            self.print_info(f"Filtered top {config.processing.percentage_to_retain:.0%}: {len(df):,} rows remaining")
+
+            progress.step_completed("Data cleaning completed")
+
+            # Step 7: Reorder and rename columns
+            logger.info("Reordering and renaming columns...")
+            df = processor.reorder_columns(df)
+            df = processor.rename_columns(df)
+
+            # Merge FIPS data
+            df = processor.merge_fips_data(df, config.paths.fips_file_path)
+
+            df = processor.uppercase_columns(df)
+            progress.step_completed("Column formatting completed")
+
+            # Step 8: Interactive filtering
+            console.print_section("Interactive Filtering")
+            data_filter = DataFilter()
+            df = data_filter.apply_interactive_filters(df)
+            progress.step_completed("Interactive filtering completed")
+
+            # Step 9: Final cleanup
+            console.print_section("Final Cleanup")
+            df = processor.clean_ltv_values(df)
+            df = processor.apply_title_case(df)
+            self.print_info("Applied final formatting")
+            progress.step_completed("Final cleanup completed")
+
+            # Step 10: Remove duplicates from previous files (optional)
+            console.print_section("Duplicate Removal from Previous Files")
+            if console.confirm_action("Do you want to remove properties listed in previous files (from 'Dupes' folder)?"):
+                dupe_manager = DuplicateManager()
+                previous_addresses = dupe_manager.load_previous_addresses(config.paths.dupes_path)
+
+                if previous_addresses:
+                    df, removed_count = processor.remove_previous_addresses(df, previous_addresses)
+                    self.print_success(f"Removed {removed_count:,} duplicate properties")
+                else:
+                    self.print_warning("No previous addresses found to compare against")
+
+            progress.step_completed("Duplicate removal completed")
+
+            # Validate final data
+            if not validator.validate_dataframe(df, "Final DataFrame"):
+                self.print_error("Final data validation failed!")
+                input(f"\n{Fore.CYAN}Press Enter to continue...{Style.RESET_ALL}")
+                return
+
+            # Step 11: Save to Excel
+            console.print_section("Saving Results")
+            excel_formatter = ExcelFormatter(config.excel, config.columns)
+            output_file = excel_formatter.save_formatted_excel(
+                df,
+                config.paths.output_path,
+                customer
+            )
+            self.print_success(f"Saved Excel file: {output_file.name}")
+            logger.info(f"Output file saved: {output_file}")
+
+            # Step 12: Generate summary report
+            console.print_section("Final Summary")
+            report_generator = ReportGenerator()
+            report_generator.print_summary_report(df)
+
+            # Print completion
+            elapsed_time = time.time() - start_time
+            progress.print_summary(len(df), elapsed_time)
+
+            self.print_success("Process completed successfully!")
+            logger.info(f"Processing completed in {elapsed_time:.2f} seconds")
+            logger.info("=" * 60)
+
+        except KeyboardInterrupt:
+            self.print_warning("\nProcess interrupted by user")
+            logger.warning("Process interrupted by user")
+
         except Exception as e:
-            self.print_error(f"Error running main pipeline: {e}")
+            self.print_error(f"An error occurred: {e}")
+            logger.error(f"Fatal error: {e}", exc_info=True)
             import traceback
             traceback.print_exc()
 

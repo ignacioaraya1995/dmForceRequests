@@ -200,6 +200,7 @@ class DynamicTableGenerator:
 
             # Calculate years ago
             current_date = datetime.now()
+            date_series = pd.to_datetime(date_series, errors='coerce')
             years_ago = (current_date - date_obj).days / 365.25
             return years_ago
 

@@ -132,6 +132,38 @@ class DynamicTableGenerator:
             ('100+ years', '100+ years', 100, float('inf'))
         ]
 
+        # Distress Indicator Mappings
+        # Format: (display_name, column_name, condition_type, condition_value)
+        # condition_type: 'flag' (truthy check), 'equals' (exact match), 'not_equals'
+        self.distress_indicators = [
+            ('Owner_Occupied', 'Vacant', 'equals', 0),
+            ('Absentees', 'Absentee', 'equals', 1),
+            ('Absentees_Out_of_State', 'Absentee', 'equals', 2),
+            ('Equity', 'highEquity', 'flag', None),
+            ('Downsizing', 'Downsizing_Distress', 'flag', None),
+            ('Preforeclosure', 'Preforeclosure_Distress', 'flag', None),
+            ('Vacant', 'Prop_Vacant_Flag', 'flag', None),
+            ('Senior', 'Senior_Distress', 'flag', None),
+            ('Estates', 'Estate_Distress', 'flag', None),
+            ('Interfamily_Transfers', 'Inter_Family_Distress', 'flag', None),
+            ('Divorce', 'Divorce_Distress', 'flag', None),
+            ('Tax_Delinquent', 'Tax_Delinquent_Distress', 'flag', None),
+            ('Probate', 'Probate_Distress', 'flag', None),
+            ('Low_Income_Owners', 'Low_income_Distress', 'flag', None),
+            ('Code_Violation', 'Violation_Distress', 'flag', None),
+            ('Bankruptcy', 'Bankruptcy_Distress', 'flag', None),
+            ('Lien_City_County', 'Lien_City_County_Distress', 'flag', None),
+            ('Lien_Other', 'Lien_Other_Distress', 'flag', None),
+            ('Lien_Utility', 'Lien_Utility_Distress', 'flag', None),
+            ('Lien_HOA', 'Lien_HOA_Distress', 'flag', None),
+            ('Lien_Mechanic', 'Lien_Mechanical_Distress', 'flag', None),
+            ('Lien_Poor_Condition', 'PoorCondition_Distress', 'flag', None),
+            ('Eviction', 'Eviction_Distress', 'flag', None),
+            ('Days_30_60', '30-60-Days_Distress', 'flag', None),
+            ('Judgement', 'Judgment_Distress', 'flag', None),
+            ('Debt_Collection', 'Debt-Collection_Distress', 'flag', None),
+        ]
+
     def categorize_value(self, value, ranges, value_is_dollar=False):
         """Categorize a value into one of the defined ranges."""
         # Handle unknown/null/empty values
@@ -480,6 +512,60 @@ class DynamicTableGenerator:
 
         return result, years_ago.notna()
 
+    def create_distress_flags_vectorized(self, df):
+        """
+        Create binary flag columns for each distress indicator.
+
+        Returns a DataFrame with binary (0/1) columns for each distress indicator,
+        using the mappings defined in self.distress_indicators.
+        """
+        distress_flags = {}
+
+        for display_name, column_name, condition_type, condition_value in self.distress_indicators:
+            if column_name not in df.columns:
+                # Column doesn't exist in this CSV, set all to 0
+                distress_flags[display_name] = 0
+                continue
+
+            col_data = df[column_name]
+
+            if condition_type == 'flag':
+                # Truthy check: 1, '1', 'Y', 'Yes', 'TRUE', True, etc.
+                numeric_col = pd.to_numeric(col_data, errors='coerce')
+                # Check for numeric truthy (1 or greater)
+                numeric_mask = numeric_col.notna() & (numeric_col >= 1)
+                # Check for string truthy values
+                str_col = col_data.fillna('').astype(str).str.strip().str.lower()
+                string_mask = str_col.isin(['1', 'y', 'yes', 'true', 't'])
+                # Combine masks
+                distress_flags[display_name] = (numeric_mask | string_mask).astype(int)
+
+            elif condition_type == 'equals':
+                # Exact match check
+                numeric_col = pd.to_numeric(col_data, errors='coerce')
+                if pd.notna(condition_value) and isinstance(condition_value, (int, float)):
+                    # Numeric comparison
+                    distress_flags[display_name] = (numeric_col == condition_value).astype(int)
+                else:
+                    # String comparison
+                    str_col = col_data.fillna('').astype(str).str.strip().str.lower()
+                    distress_flags[display_name] = (str_col == str(condition_value).lower()).astype(int)
+
+            elif condition_type == 'not_equals':
+                # Not equal check
+                numeric_col = pd.to_numeric(col_data, errors='coerce')
+                if pd.notna(condition_value) and isinstance(condition_value, (int, float)):
+                    distress_flags[display_name] = (numeric_col != condition_value).astype(int)
+                else:
+                    str_col = col_data.fillna('').astype(str).str.strip().str.lower()
+                    distress_flags[display_name] = (str_col != str(condition_value).lower()).astype(int)
+
+            else:
+                # Default to 0 for unknown condition types
+                distress_flags[display_name] = 0
+
+        return pd.DataFrame(distress_flags, index=df.index)
+
     def process_csv_files(self):
         """Process all CSV files and generate the dynamic table (VECTORIZED VERSION)."""
         print("=" * 80)
@@ -590,14 +676,22 @@ class DynamicTableGenerator:
                 date_stats['saleDate_valid'] += sale_valid.sum()
                 date_stats['saleDate_invalid'] += (~sale_valid).sum()
 
+                # Create distress indicator flag columns
+                distress_flags_df = self.create_distress_flags_vectorized(df)
+                distress_col_names = [ind[0] for ind in self.distress_indicators]
+
                 # Select only the columns we need for aggregation
-                aggregation_cols = [
+                dimension_cols = [
                     'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
                     'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
                     'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
                 ]
 
-                df_agg = df[aggregation_cols].copy()
+                # Combine dimension columns with distress flag columns
+                df_agg = df[dimension_cols].copy()
+                for col in distress_col_names:
+                    df_agg[col] = distress_flags_df[col]
+
                 all_processed_dfs.append(df_agg)
 
                 print(f"✓ Processed {len(df):,} rows from {csv_file.name} (vectorized)")
@@ -624,14 +718,28 @@ class DynamicTableGenerator:
 
         # Aggregate using groupby - MUCH faster than dictionary approach
         print("Performing aggregation (using groupby)...")
-        aggregation_cols = [
+        dimension_cols = [
             'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
             'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
             'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
         ]
 
-        output_df = combined_df.groupby(aggregation_cols, as_index=False, dropna=False).size()
-        output_df.rename(columns={'size': 'Number_of_Records'}, inplace=True)
+        # Get distress column names for aggregation
+        distress_col_names = [ind[0] for ind in self.distress_indicators]
+
+        # Build aggregation dictionary: sum each distress column
+        agg_dict = {col: 'sum' for col in distress_col_names}
+
+        # Perform groupby with aggregation
+        output_df = combined_df.groupby(dimension_cols, as_index=False, dropna=False).agg(agg_dict)
+
+        # Add Number_of_Records column (count per group)
+        record_counts = combined_df.groupby(dimension_cols, dropna=False).size().reset_index(name='Number_of_Records')
+        output_df = output_df.merge(record_counts, on=dimension_cols, how='left')
+
+        # Reorder columns: dimensions first, then Number_of_Records, then distress counts
+        final_column_order = dimension_cols + ['Number_of_Records'] + distress_col_names
+        output_df = output_df[final_column_order]
 
         print(f"✓ Created {len(output_df):,} unique combinations")
 

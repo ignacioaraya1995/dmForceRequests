@@ -426,23 +426,42 @@ class DynamicTableGenerator:
         return result
 
     def categorize_dates_vectorized(self, series, ranges):
-        """Vectorized categorization of date column into years-ago ranges."""
-        # Convert to datetime
-        date_series = pd.to_datetime(series, errors='coerce')
+        """
+        Vectorized categorization of date column into years-ago ranges.
 
-        # For numeric years, convert to datetime
-        numeric_mask = pd.to_numeric(series, errors='coerce').notna() & date_series.isna()
-        if numeric_mask.any():
-            numeric_years = pd.to_numeric(series[numeric_mask], errors='coerce')
-            # Filter valid years
-            valid_years = (numeric_years >= 1800) & (numeric_years <= 2100)
-            if valid_years.any():
-                year_dates = pd.to_datetime(numeric_years[valid_years].astype(int).astype(str) + '-01-01', errors='coerce')
-                date_series[numeric_mask] = year_dates
+        Uses year extraction instead of datetime arithmetic to avoid overflow
+        errors with malformed/extreme dates in the source data.
+        """
+        current_year = datetime.now().year
 
-        # Calculate years ago
-        current_date = datetime.now()
-        years_ago = (current_date - date_series).dt.days / 365.25
+        # Initialize years_ago as NaN (will be filled with valid values)
+        years_ago = pd.Series([np.nan] * len(series), index=series.index)
+
+        # First, try to extract years from numeric values (e.g., 1990, 2005)
+        numeric_values = pd.to_numeric(series, errors='coerce')
+        numeric_year_mask = numeric_values.notna() & (numeric_values >= 1800) & (numeric_values <= 2100)
+        if numeric_year_mask.any():
+            years_ago[numeric_year_mask] = current_year - numeric_values[numeric_year_mask]
+
+        # For non-numeric values, try to parse as dates and extract year
+        non_numeric_mask = ~numeric_year_mask & series.notna() & (series != '') & (series != 'Unknown')
+        if non_numeric_mask.any():
+            # Parse dates with coerce to handle invalid formats
+            parsed_dates = pd.to_datetime(series[non_numeric_mask], errors='coerce')
+
+            # Extract years safely - this returns NaN for NaT values
+            # Use try-except to handle any remaining overflow issues
+            try:
+                extracted_years = parsed_dates.dt.year
+                # Filter to valid year range (1800-2100) to avoid garbage data
+                valid_year_mask = extracted_years.notna() & (extracted_years >= 1800) & (extracted_years <= 2100)
+
+                # Calculate years ago for valid dates
+                valid_indices = extracted_years[valid_year_mask].index
+                years_ago.loc[valid_indices] = current_year - extracted_years[valid_year_mask].values
+            except (OverflowError, ValueError):
+                # If extraction fails, leave those values as NaN (will be categorized as Unknown)
+                pass
 
         # Create result series filled with Unknown
         result = pd.Series([ranges[0][1]] * len(series), index=series.index)

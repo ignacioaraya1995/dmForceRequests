@@ -115,7 +115,7 @@ class ConsoleInterface:
             True if user confirmed, False otherwise
         """
         response = input(f"{Fore.YELLOW}🤔 {prompt} (yes/no): {Style.RESET_ALL}").strip().lower()
-        confirmed = response == 'yes'
+        confirmed = response in ('y', 'yes')
         logger.debug(f"User confirmation for '{prompt}': {confirmed}")
         return confirmed
 
@@ -248,6 +248,18 @@ class DataFilter:
             logger.error(f"Invalid numeric input for {column_name} filter: {e}")
             return df
 
+    def _is_yes_response(self, response: str) -> bool:
+        """
+        Check if user response indicates 'yes'.
+
+        Args:
+            response: User input string
+
+        Returns:
+            True if response indicates yes, False otherwise
+        """
+        return response.strip().lower() in ('y', 'yes')
+
     def apply_interactive_filters(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply interactive filters based on user input.
@@ -263,15 +275,18 @@ class DataFilter:
         print(f"\n{Fore.MAGENTA}{Style.BRIGHT}🎯 --- Interactive Filters (Optional) ---{Style.RESET_ALL}\n")
 
         # Owner Type filter
-        if input(f"{Fore.YELLOW}🤔 Do you want to filter by OWNER TYPE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
+        response = input(f"{Fore.YELLOW}🤔 Do you want to filter by OWNER TYPE? (yes/no): {Style.RESET_ALL}")
+        if self._is_yes_response(response):
             df = self.apply_text_filter(df, 'OWNER TYPE')
 
         # Property Type filter
-        if input(f"{Fore.YELLOW}🤔 Do you want to filter by PROPERTY TYPE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
+        response = input(f"{Fore.YELLOW}🤔 Do you want to filter by PROPERTY TYPE? (yes/no): {Style.RESET_ALL}")
+        if self._is_yes_response(response):
             df = self.apply_text_filter(df, 'PROPERTY TYPE')
 
         # Total Value filter
-        if input(f"{Fore.YELLOW}🤔 Do you want to filter by TOTALVALUE? (yes/no): {Style.RESET_ALL}").strip().lower() == 'yes':
+        response = input(f"{Fore.YELLOW}🤔 Do you want to filter by TOTALVALUE? (yes/no): {Style.RESET_ALL}")
+        if self._is_yes_response(response):
             df = self.apply_numeric_filter(df, 'TOTALVALUE')
 
         logger.info("Interactive filtering completed")

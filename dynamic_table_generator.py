@@ -31,6 +31,10 @@ class DynamicTableGenerator:
         # Define all range buckets
         self.define_ranges()
 
+        # Define distress mapping: display_name -> (raw_column, condition)
+        # condition can be: 'boolean' (truthy check), 'equals_1', 'equals_2', or a specific value
+        self.define_distress_mapping()
+
     def define_ranges(self):
         """Define all range buckets for numeric columns."""
 
@@ -131,6 +135,87 @@ class DynamicTableGenerator:
             ('75-99 years', '75-99 years', 75, 100),
             ('100+ years', '100+ years', 100, float('inf'))
         ]
+
+    def define_distress_mapping(self):
+        """
+        Define mapping between distress display names and raw data columns.
+
+        Each entry maps a human-readable distress name to:
+        - raw_column: The column name in the source CSV
+        - condition: How to evaluate the column ('boolean', 'equals_1', 'equals_2')
+
+        The output columns will contain 1 (distress applies) or 0 (doesn't apply).
+        """
+        # Mapping: display_name -> (raw_column, condition_type)
+        # condition_type: 'boolean' = truthy check, 'equals_N' = equals specific value
+        self.distress_mapping = {
+            'Owner_Occupied': ('Prop_Vacant_Flag', 'not_boolean'),  # Owner occupied = NOT vacant
+            'Absentees': ('Absentee', 'equals_1'),
+            'Absentees_Out_of_State': ('Absentee', 'equals_2'),
+            'Equity': ('highEquity', 'boolean'),
+            'Downsizing': ('Downsizing_Distress', 'boolean'),
+            'Preforeclosure': ('Preforeclosure_Distress', 'boolean'),
+            'Vacant': ('Prop_Vacant_Flag', 'boolean'),
+            'Senior': ('Senior_Distress', 'boolean'),
+            'Estates': ('Estate_Distress', 'boolean'),
+            'Interfamily_Transfers': ('Inter_Family_Distress', 'boolean'),
+            'Divorce': ('Divorce_Distress', 'boolean'),
+            'Tax_Delinquent': ('Tax_Delinquent_Distress', 'boolean'),
+            'Probate': ('Probate_Distress', 'boolean'),
+            'Low_Income_Owners': ('Low_income_Distress', 'boolean'),
+            'Code_Violation': ('Violation_Distress', 'boolean'),
+            'Bankruptcy': ('Bankruptcy_Distress', 'boolean'),
+            'Lien_City_County': ('Lien_City_County_Distress', 'boolean'),
+            'Lien_Other': ('Lien_Other_Distress', 'boolean'),
+            'Lien_Utility': ('Lien_Utility_Distress', 'boolean'),
+            'Lien_HOA': ('Lien_HOA_Distress', 'boolean'),
+            'Lien_Mechanic': ('Lien_Mechanical_Distress', 'boolean'),
+            'Lien_Poor_Condition': ('PoorCondition_Distress', 'boolean'),
+            'Eviction': ('Eviction_Distress', 'boolean'),
+            '30_60_Days': ('30-60-Days_Distress', 'boolean'),
+            'Judgement': ('Judgment_Distress', 'boolean'),
+            'Debt_Collection': ('Debt-Collection_Distress', 'boolean'),
+        }
+
+        # Ordered list of distress column names for consistent output
+        self.distress_columns = list(self.distress_mapping.keys())
+
+    def detect_distress_vectorized(self, df):
+        """
+        Detect and populate distress indicator columns using vectorized operations.
+
+        Args:
+            df: Input DataFrame with raw data columns
+
+        Returns:
+            DataFrame with new distress indicator columns added (1/0 values)
+        """
+        for distress_name, (raw_column, condition) in self.distress_mapping.items():
+            if raw_column not in df.columns:
+                # Column doesn't exist in data - set all to 0
+                df[distress_name] = 0
+                continue
+
+            # Get the raw column values
+            raw_values = df[raw_column]
+
+            if condition == 'boolean':
+                # Truthy check: any non-zero, non-null, non-empty value = 1
+                df[distress_name] = pd.to_numeric(raw_values, errors='coerce').fillna(0).astype(bool).astype(int)
+            elif condition == 'not_boolean':
+                # Inverse boolean: 1 if value is falsy (0, null, empty)
+                df[distress_name] = (~pd.to_numeric(raw_values, errors='coerce').fillna(0).astype(bool)).astype(int)
+            elif condition == 'equals_1':
+                # Check if value equals 1
+                df[distress_name] = (pd.to_numeric(raw_values, errors='coerce') == 1).astype(int)
+            elif condition == 'equals_2':
+                # Check if value equals 2
+                df[distress_name] = (pd.to_numeric(raw_values, errors='coerce') == 2).astype(int)
+            else:
+                # Default: treat as boolean
+                df[distress_name] = pd.to_numeric(raw_values, errors='coerce').fillna(0).astype(bool).astype(int)
+
+        return df
 
     def categorize_value(self, value, ranges, value_is_dollar=False):
         """Categorize a value into one of the defined ranges."""
@@ -546,11 +631,15 @@ class DynamicTableGenerator:
                 print("Processing data (vectorized operations)...")
 
                 # Extract dimension values (string columns)
-                df['FIPS'] = df['FIPS'].fillna('Unknown').astype(str)
-                df['SitusCity'] = df['SitusCity'].fillna('Unknown').astype(str)
-                df['SitusZIP5'] = df['SitusZIP5'].fillna('Unknown').astype(str)
-                df['Owner_Type'] = df['Owner_Type'].fillna('Unknown').astype(str)
-                df['Use_Type'] = df['Use_Type'].fillna('Unknown').astype(str)
+                df['FIPS'] = df['FIPS'].fillna('Unknown').astype(str) if 'FIPS' in df.columns else 'Unknown'
+                df['SitusCity'] = df['SitusCity'].fillna('Unknown').astype(str) if 'SitusCity' in df.columns else 'Unknown'
+                df['SitusZIP5'] = df['SitusZIP5'].fillna('Unknown').astype(str) if 'SitusZIP5' in df.columns else 'Unknown'
+                df['Owner_Type'] = df['Owner_Type'].fillna('Unknown').astype(str) if 'Owner_Type' in df.columns else 'Unknown'
+                df['Use_Type'] = df['Use_Type'].fillna('Unknown').astype(str) if 'Use_Type' in df.columns else 'Unknown'
+
+                # Detect and populate distress indicator columns
+                print("Detecting distress indicators...")
+                df = self.detect_distress_vectorized(df)
 
                 # Categorize numeric columns using vectorized operations
                 df['TotalValue_Range'] = self.categorize_column_vectorized(
@@ -592,11 +681,14 @@ class DynamicTableGenerator:
                 date_stats['saleDate_invalid'] += (~sale_valid).sum()
 
                 # Select only the columns we need for aggregation
-                aggregation_cols = [
+                dimension_cols = [
                     'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
                     'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
                     'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
                 ]
+
+                # Include distress columns for aggregation (sum counts)
+                aggregation_cols = dimension_cols + self.distress_columns
 
                 df_agg = df[aggregation_cols].copy()
                 all_processed_dfs.append(df_agg)
@@ -625,16 +717,29 @@ class DynamicTableGenerator:
 
         # Aggregate using groupby - MUCH faster than dictionary approach
         print("Performing aggregation (using groupby)...")
-        aggregation_cols = [
+        dimension_cols = [
             'FIPS', 'SitusCity', 'SitusZIP5', 'Owner_Type', 'Use_Type',
             'SaleDate_Range', 'BuildDate_Range', 'TotalValue_Range',
             'LTV_Range', 'LotSizeSqFt_Range', 'SumLivingAreaSqFt_Range'
         ]
 
-        output_df = combined_df.groupby(aggregation_cols, as_index=False, dropna=False).size()
-        output_df.rename(columns={'size': 'Number_of_Records'}, inplace=True)
+        # Create aggregation dictionary: sum for distress columns
+        agg_dict = {col: 'sum' for col in self.distress_columns}
+
+        # Perform groupby with aggregation for distress columns
+        output_df = combined_df.groupby(dimension_cols, as_index=False, dropna=False).agg(agg_dict)
+
+        # Add record count column
+        record_counts = combined_df.groupby(dimension_cols, dropna=False).size().reset_index(name='Number_of_Records')
+
+        # Merge record counts with distress sums
+        output_df = output_df.merge(record_counts, on=dimension_cols, how='left')
 
         print(f"✓ Created {len(output_df):,} unique combinations")
+
+        # Reorder columns: dimensions, distress counts, then record count
+        final_column_order = dimension_cols + self.distress_columns + ['Number_of_Records']
+        output_df = output_df[final_column_order]
 
         print(f"\n{'=' * 80}")
         print(f"PROCESSING COMPLETE")
@@ -642,6 +747,15 @@ class DynamicTableGenerator:
         print(f"Total rows processed: {total_rows_processed:,}")
         print(f"Total rows suppressed: {total_rows_suppressed:,}")
         print(f"Unique combinations: {len(output_df):,}")
+
+        # Print distress statistics
+        print(f"\n{'=' * 80}")
+        print("DISTRESS INDICATOR STATISTICS")
+        print(f"{'=' * 80}")
+        for distress_col in self.distress_columns:
+            total_count = output_df[distress_col].sum()
+            pct = 100 * total_count / total_rows_processed if total_rows_processed > 0 else 0
+            print(f"  {distress_col}: {total_count:,} properties ({pct:.1f}%)")
 
         # Print date statistics
         print(f"\n{'=' * 80}")

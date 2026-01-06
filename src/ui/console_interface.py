@@ -274,20 +274,51 @@ class DataFilter:
 
         print(f"\n{Fore.MAGENTA}{Style.BRIGHT}🎯 --- Interactive Filters (Optional) ---{Style.RESET_ALL}\n")
 
-        # Owner Type filter
+        # 1. Owner Type filter
         response = input(f"{Fore.YELLOW}🤔 Do you want to filter by OWNER TYPE? (yes/no): {Style.RESET_ALL}")
         if self._is_yes_response(response):
             df = self.apply_text_filter(df, 'OWNER TYPE')
 
-        # Property Type filter
+        # 2. Property Type filter
         response = input(f"{Fore.YELLOW}🤔 Do you want to filter by PROPERTY TYPE? (yes/no): {Style.RESET_ALL}")
         if self._is_yes_response(response):
             df = self.apply_text_filter(df, 'PROPERTY TYPE')
 
-        # Total Value filter
+        # 3. Total Value filter
         response = input(f"{Fore.YELLOW}🤔 Do you want to filter by TOTALVALUE? (yes/no): {Style.RESET_ALL}")
         if self._is_yes_response(response):
             df = self.apply_numeric_filter(df, 'TOTALVALUE')
+
+        # 4. Year Built Filter (NEW)
+        if 'YEARBUILT' in df.columns:
+            response = input(f"{Fore.YELLOW}🤔 Do you want to filter by YEAR BUILT? (yes/no): {Style.RESET_ALL}")
+            if self._is_yes_response(response):
+                # Ensure it's numeric before filtering
+                df['YEARBUILT'] = pd.to_numeric(df['YEARBUILT'], errors='coerce')
+                df = self.apply_numeric_filter(df, 'YEARBUILT')
+
+        # 5. Years of Ownership Filter (NEW - Calculated from SALEDATE)
+        if 'SALEDATE' in df.columns:
+            response = input(f"{Fore.YELLOW}🤔 Do you want to filter by YEARS OF OWNERSHIP? (yes/no): {Style.RESET_ALL}")
+            if self._is_yes_response(response):
+                try:
+                    # Calculate temporary column
+                    print(f"{Fore.CYAN}⏳ Calculating ownership duration...{Style.RESET_ALL}")
+                    df['SALEDATE'] = pd.to_datetime(df['SALEDATE'], errors='coerce')
+                    current_date = pd.Timestamp.now()
+                    
+                    # Create temporary 'YEARS_OWNED' column
+                    df['YEARS_OWNED'] = (current_date - df['SALEDATE']).dt.days / 365.25
+                    
+                    # Apply filter using the standard numeric method
+                    df = self.apply_numeric_filter(df, 'YEARS_OWNED')
+                    
+                    # Clean up: Remove temporary column so it doesn't appear in final output
+                    df.drop(columns=['YEARS_OWNED'], inplace=True)
+                    
+                except Exception as e:
+                    print(f"{Fore.RED}❌ Error calculating years of ownership: {e}{Style.RESET_ALL}")
+                    logger.error(f"Ownership filter error: {e}")
 
         logger.info("Interactive filtering completed")
 

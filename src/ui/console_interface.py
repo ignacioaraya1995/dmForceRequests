@@ -120,71 +120,7 @@ class ConsoleInterface:
         return confirmed
 
 
-class DataFilter:
-    """Handles interactive data filtering operations."""
-
-    def __init__(self):
-        """Initialize the data filter."""
-        logger.debug("DataFilter initialized")
-
-    def apply_text_filter(
-        self,
-        df: pd.DataFrame,
-        column_name: str
-    ) -> pd.DataFrame:
-        """
-        Apply text-based filter on a column.
-
-        Args:
-            df: DataFrame to filter
-            column_name: Column to filter on
-
-        Returns:
-            Filtered DataFrame
-        """
-        initial_count = len(df)
-
-        if initial_count == 0:
-            print(f"{Fore.YELLOW}⚠️  No data to filter by {column_name}. Skipping.{Style.RESET_ALL}")
-            logger.warning(f"Empty dataframe, skipping filter for {column_name}")
-            return df
-
-        if column_name not in df.columns:
-            print(f"{Fore.YELLOW}⚠️  Column '{column_name}' not found. Skipping filter.{Style.RESET_ALL}")
-            logger.warning(f"Column {column_name} not found in dataframe")
-            return df
-
-        # Show unique values
-        unique_items = sorted(df[column_name].dropna().unique())
-        print(f"\n{Fore.CYAN}📋 Available values for '{column_name}':{Style.RESET_ALL}")
-        print(f"  {Fore.WHITE}{', '.join(map(str, unique_items))}{Style.RESET_ALL}")
-
-        # Get user input
-        desired_items_str = input(
-            f"{Fore.CYAN}🔍 Enter desired '{column_name}' values (comma-separated), or press Enter to skip: {Style.RESET_ALL}"
-        ).strip().lower()
-
-        if not desired_items_str:
-            logger.info(f"User skipped filter for {column_name}")
-            return df
-
-        # Parse input
-        desired_list = [item.strip() for item in desired_items_str.split(',') if item.strip()]
-
-        if not desired_list:
-            logger.warning(f"No valid values provided for {column_name} filter")
-            return df
-
-        # Apply filter
-        df_filtered = df[df[column_name].str.lower().isin(desired_list)].copy()
-
-        removed = initial_count - len(df_filtered)
-        print(f"{Fore.GREEN}✅ Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.{Style.RESET_ALL}\n")
-        logger.info(f"Text filter on {column_name}: removed {removed:,} rows")
-
-        return df_filtered
-
-    def apply_numeric_filter(
+def apply_numeric_filter(
         self,
         df: pd.DataFrame,
         column_name: str

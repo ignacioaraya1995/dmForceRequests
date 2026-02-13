@@ -506,7 +506,7 @@ class DataProcessor:
             logger.debug("Checking property addresses against suppression list (vectorized)")
             # Create cleaned address and zip columns in vectorized way
             prop_addr_clean = df[property_addr].fillna('').astype(str).str.strip().str.lower()
-            prop_zip_clean = df[property_zip].fillna('').astype(str).str.strip()
+            prop_zip_clean = df[property_zip].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
             # Create tuples for comparison
             prop_tuples = list(zip(prop_addr_clean, prop_zip_clean))
@@ -522,7 +522,7 @@ class DataProcessor:
             logger.debug("Checking mailing addresses against suppression list (vectorized)")
             # Create cleaned address and zip columns in vectorized way
             mail_addr_clean = df[mailing_addr].fillna('').astype(str).str.strip().str.lower()
-            mail_zip_clean = df[mailing_zip].fillna('').astype(str).str.strip()
+            mail_zip_clean = df[mailing_zip].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
             # Create tuples for comparison
             mail_tuples = list(zip(mail_addr_clean, mail_zip_clean))

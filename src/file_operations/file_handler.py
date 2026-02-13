@@ -219,12 +219,18 @@ class DuplicateManager:
                 'Mailing Address'
             ]
 
-            # Zip code columns
-            zip_cols = [
+            # Property zip code columns
+            property_zip_cols = [
                 'PROPERTY ZIP', 'PropertyZIP', 'Property_ZIP', 'PropertyZIP5',
                 'SitusZIP5', 'Situs_ZIP5', 'SitusZIP', 'Property ZIP',
+                'ZIP', 'Zip', 'ZipCode', 'Zip_Code'
+            ]
+
+            # Mailing zip code columns
+            mailing_zip_cols = [
                 'MAILING ZIP', 'MailingZIP', 'Mailing_ZIP', 'MailingZIP5',
-                'Mailing ZIP', 'ZIP', 'Zip', 'ZipCode', 'Zip_Code'
+                'Mailing ZIP',
+                'ZIP', 'Zip', 'ZipCode', 'Zip_Code'
             ]
 
             # Find which columns exist in the dataframe
@@ -240,11 +246,8 @@ class DuplicateManager:
                     mailing_col = col
                     break
 
-            zip_col = None
-            for col in zip_cols:
-                if col in df.columns:
-                    zip_col = col
-                    break
+            property_zip_col = next((col for col in property_zip_cols if col in df.columns), None)
+            mailing_zip_col = next((col for col in mailing_zip_cols if col in df.columns), None)
 
             if not property_col and not mailing_col:
                 logger.warning(
@@ -252,19 +255,17 @@ class DuplicateManager:
                 )
                 return set()
 
-            if not zip_col:
+            if not property_zip_col and not mailing_zip_col:
                 logger.warning(
                     f"File {file_path.name} does not contain zip code column. "
                     f"Suppression requires both address and zip code."
                 )
-                # Still try to extract addresses without zip, use empty string as zip
-                zip_col = None
 
             # Extract records from property address column - VECTORIZED
             if property_col:
                 # Clean addresses and zips in vectorized way
                 prop_addr_clean = df[property_col].fillna('').astype(str).str.strip().str.lower()
-                prop_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
+                prop_zip_clean = df[property_zip_col].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True) if property_zip_col else pd.Series([''] * len(df))
 
                 # Filter out empty addresses
                 valid_mask = prop_addr_clean != ''
@@ -279,7 +280,7 @@ class DuplicateManager:
             if mailing_col:
                 # Clean addresses and zips in vectorized way
                 mail_addr_clean = df[mailing_col].fillna('').astype(str).str.strip().str.lower()
-                mail_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
+                mail_zip_clean = df[mailing_zip_col].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True) if mailing_zip_col else pd.Series([''] * len(df))
 
                 # Filter out empty addresses
                 valid_mask = mail_addr_clean != ''

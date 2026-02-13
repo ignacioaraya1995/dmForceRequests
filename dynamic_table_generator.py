@@ -361,8 +361,14 @@ class DynamicTableGenerator:
                     'MAILING ADDRESS', 'MailingAddress', 'Mailing_Address',
                     'MailingFullStreetAddress', 'Mailing_Full_Street_Address'
                 ]
-                zip_cols = [
+                # Property zip code columns
+                property_zip_cols = [
                     'PROPERTY ZIP', 'PropertyZIP', 'SitusZIP5', 'SitusZIP',
+                    'ZIP', 'Zip', 'ZipCode'
+                ]
+
+                # Mailing zip code columns
+                mailing_zip_cols_list = [
                     'MAILING ZIP', 'MailingZIP', 'MailingZIP5',
                     'ZIP', 'Zip', 'ZipCode'
                 ]
@@ -370,7 +376,8 @@ class DynamicTableGenerator:
                 # Find which columns exist
                 property_col = next((col for col in property_addr_cols if col in df.columns), None)
                 mailing_col = next((col for col in mailing_addr_cols if col in df.columns), None)
-                zip_col = next((col for col in zip_cols if col in df.columns), None)
+                property_zip_col = next((col for col in property_zip_cols if col in df.columns), None)
+                mailing_zip_col = next((col for col in mailing_zip_cols_list if col in df.columns), None)
 
                 if not property_col and not mailing_col:
                     print(f"    ⚠ No address columns found in {file_path.name}")
@@ -379,7 +386,7 @@ class DynamicTableGenerator:
                 # Extract records from property address - VECTORIZED
                 if property_col:
                     prop_addr_clean = df[property_col].fillna('').astype(str).str.strip().str.lower()
-                    prop_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
+                    prop_zip_clean = df[property_zip_col].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True) if property_zip_col else pd.Series([''] * len(df))
 
                     # Filter out empty addresses
                     valid_mask = prop_addr_clean != ''
@@ -393,7 +400,7 @@ class DynamicTableGenerator:
                 # Extract records from mailing address - VECTORIZED
                 if mailing_col:
                     mail_addr_clean = df[mailing_col].fillna('').astype(str).str.strip().str.lower()
-                    mail_zip_clean = df[zip_col].fillna('').astype(str).str.strip() if zip_col else pd.Series([''] * len(df))
+                    mail_zip_clean = df[mailing_zip_col].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True) if mailing_zip_col else pd.Series([''] * len(df))
 
                     # Filter out empty addresses
                     valid_mask = mail_addr_clean != ''
@@ -425,7 +432,7 @@ class DynamicTableGenerator:
         situs_zip = row.get('SitusZIP5')
         if pd.notna(situs_addr) and pd.notna(situs_zip):
             clean_addr = str(situs_addr).strip().lower()
-            clean_zip = str(situs_zip).strip()
+            clean_zip = str(situs_zip).strip().replace('.0', '') if str(situs_zip).strip().endswith('.0') else str(situs_zip).strip()
             if (clean_addr, clean_zip) in self.suppression_records:
                 return True
 
@@ -434,7 +441,7 @@ class DynamicTableGenerator:
         mailing_zip = row.get('MailingZIP5')
         if pd.notna(mailing_addr) and pd.notna(mailing_zip):
             clean_addr = str(mailing_addr).strip().lower()
-            clean_zip = str(mailing_zip).strip()
+            clean_zip = str(mailing_zip).strip().replace('.0', '') if str(mailing_zip).strip().endswith('.0') else str(mailing_zip).strip()
             if (clean_addr, clean_zip) in self.suppression_records:
                 return True
 
@@ -454,7 +461,7 @@ class DynamicTableGenerator:
         # Check property address + zip combinations - VECTORIZED
         if 'SitusFullStreetAddress' in df.columns and 'SitusZIP5' in df.columns:
             prop_addr_clean = df['SitusFullStreetAddress'].fillna('').astype(str).str.strip().str.lower()
-            prop_zip_clean = df['SitusZIP5'].fillna('').astype(str).str.strip()
+            prop_zip_clean = df['SitusZIP5'].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
             # Create tuples for comparison
             prop_tuples = list(zip(prop_addr_clean, prop_zip_clean))
@@ -468,7 +475,7 @@ class DynamicTableGenerator:
         # Check mailing address + zip combinations - VECTORIZED
         if 'MailingFullStreetAddress' in df.columns and 'MailingZIP5' in df.columns:
             mail_addr_clean = df['MailingFullStreetAddress'].fillna('').astype(str).str.strip().str.lower()
-            mail_zip_clean = df['MailingZIP5'].fillna('').astype(str).str.strip()
+            mail_zip_clean = df['MailingZIP5'].fillna('').astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
 
             # Create tuples for comparison
             mail_tuples = list(zip(mail_addr_clean, mail_zip_clean))

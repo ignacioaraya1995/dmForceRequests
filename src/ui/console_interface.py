@@ -119,10 +119,75 @@ class ConsoleInterface:
         logger.debug(f"User confirmation for '{prompt}': {confirmed}")
         return confirmed
 
+
+class DataFilter:
+    """Handles interactive data filtering operations."""
+
+    def __init__(self):
+        """Initialize the data filter."""
+        logger.debug("DataFilter initialized")
+
+    def apply_text_filter(
+        self,
+        df: pd.DataFrame,
+        column_name: str
+    ) -> pd.DataFrame:
+        """
+        Apply text-based filter on a column.
+
+        Args:
+            df: DataFrame to filter
+            column_name: Column to filter on
+
+        Returns:
+            Filtered DataFrame
+        """
+        initial_count = len(df)
+
+        if initial_count == 0:
+            print(f"{Fore.YELLOW}⚠️  No data to filter by {column_name}. Skipping.{Style.RESET_ALL}")
+            logger.warning(f"Empty dataframe, skipping filter for {column_name}")
+            return df
+
+        if column_name not in df.columns:
+            print(f"{Fore.YELLOW}⚠️  Column '{column_name}' not found. Skipping filter.{Style.RESET_ALL}")
+            logger.warning(f"Column {column_name} not found in dataframe")
+            return df
+
+        # Show unique values
+        unique_items = sorted(df[column_name].dropna().unique())
+        print(f"\n{Fore.CYAN}📋 Available values for '{column_name}':{Style.RESET_ALL}")
+        print(f"  {Fore.WHITE}{', '.join(map(str, unique_items))}{Style.RESET_ALL}")
+
+        # Get user input
+        desired_items_str = input(
+            f"{Fore.CYAN}🔍 Enter desired '{column_name}' values (comma-separated), or press Enter to skip: {Style.RESET_ALL}"
+        ).strip().lower()
+
+        if not desired_items_str:
+            logger.info(f"User skipped filter for {column_name}")
+            return df
+
+        # Parse input
+        desired_list = [item.strip() for item in desired_items_str.split(',') if item.strip()]
+
+        if not desired_list:
+            logger.warning(f"No valid values provided for {column_name} filter")
+            return df
+
+        # Apply filter
+        df_filtered = df[df[column_name].str.lower().isin(desired_list)].copy()
+
+        removed = initial_count - len(df_filtered)
+        print(f"{Fore.GREEN}✅ Filter applied. Removed {removed:,} rows. {len(df_filtered):,} rows remaining.{Style.RESET_ALL}\n")
+        logger.info(f"Text filter on {column_name}: removed {removed:,} rows")
+
+        return df_filtered
+
     def apply_numeric_filter(
-            self,
-            df: pd.DataFrame,
-            column_name: str
+        self,
+        df: pd.DataFrame,
+        column_name: str
     ) -> pd.DataFrame:
         """
         Apply numeric range filter on a column.
@@ -224,7 +289,7 @@ class ConsoleInterface:
         if self._is_yes_response(response):
             df = self.apply_numeric_filter(df, 'TOTALVALUE')
 
-        # 4. Year Built Filter (NEW)
+        # 4. Year Built Filter
         if 'YEARBUILT' in df.columns:
             response = input(f"{Fore.YELLOW}🤔 Do you want to filter by YEAR BUILT? (yes/no): {Style.RESET_ALL}")
             if self._is_yes_response(response):
@@ -232,7 +297,7 @@ class ConsoleInterface:
                 df['YEARBUILT'] = pd.to_numeric(df['YEARBUILT'], errors='coerce')
                 df = self.apply_numeric_filter(df, 'YEARBUILT')
 
-        # 5. Years of Ownership Filter (NEW - Calculated from SALEDATE)
+        # 5. Years of Ownership Filter (Calculated from SALEDATE)
         if 'SALEDATE' in df.columns:
             response = input(f"{Fore.YELLOW}🤔 Do you want to filter by YEARS OF OWNERSHIP? (yes/no): {Style.RESET_ALL}")
             if self._is_yes_response(response):
@@ -241,16 +306,16 @@ class ConsoleInterface:
                     print(f"{Fore.CYAN}⏳ Calculating ownership duration...{Style.RESET_ALL}")
                     df['SALEDATE'] = pd.to_datetime(df['SALEDATE'], errors='coerce')
                     current_date = pd.Timestamp.now()
-                    
+
                     # Create temporary 'YEARS_OWNED' column
                     df['YEARS_OWNED'] = (current_date - df['SALEDATE']).dt.days / 365.25
-                    
+
                     # Apply filter using the standard numeric method
                     df = self.apply_numeric_filter(df, 'YEARS_OWNED')
-                    
+
                     # Clean up: Remove temporary column so it doesn't appear in final output
                     df.drop(columns=['YEARS_OWNED'], inplace=True)
-                    
+
                 except Exception as e:
                     print(f"{Fore.RED}❌ Error calculating years of ownership: {e}{Style.RESET_ALL}")
                     logger.error(f"Ownership filter error: {e}")

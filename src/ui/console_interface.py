@@ -119,11 +119,10 @@ class ConsoleInterface:
         logger.debug(f"User confirmation for '{prompt}': {confirmed}")
         return confirmed
 
-
-def apply_numeric_filter(
-        self,
-        df: pd.DataFrame,
-        column_name: str
+    def apply_numeric_filter(
+            self,
+            df: pd.DataFrame,
+            column_name: str
     ) -> pd.DataFrame:
         """
         Apply numeric range filter on a column.
